@@ -11,8 +11,10 @@
 #include <math.h>
 #include <vector>
 #include <Eigen/Dense>
+#include <matplotlibcpp.h>
 #include "map.h"
 #include "anchor.h"
+
 
 /*
  * Struct representing one position/control measurement.
@@ -149,41 +151,134 @@ inline double residual_distance(double pred_d1, double pred_d2, double pred_d3, 
 				+ (measured_d3 - pred_d3) * (measured_d3 - pred_d3) + (measured_d4 - pred_d4) * (measured_d4 - pred_d4) + (measured_d5 - pred_d5) * (measured_d5 - pred_d5));
 }
 
-inline Pose dead_reckoning_IMUData(const std::vector<topic_s>& topic_data,
-									const Pose& initial_pose) {
+inline double generateRandomInDisjointIntervals(std::default_random_engine &gen, double min1, double max1, double min2, double max2) {
+    // Create uniform real distributions for the disjoint intervals
+    std::uniform_real_distribution<double> dist_first_interval(min1, max1);
+    std::uniform_real_distribution<double> dist_second_interval(min2, max2);
+    
+    // Create a uniform integer distribution to choose the interval
+    std::uniform_int_distribution<int> dist_choice(0, 1);
+    
+    // Randomly select which interval to use
+    int choice = dist_choice(gen);
+    
+    if (choice == 0) {
+        return dist_first_interval(gen);
+    } else {
+        return dist_second_interval(gen);
+    }
+}
+
+// Function to compute rotation matrix from pitch, roll, and yaw
+inline Eigen::Matrix3d rotationMatrixFromEuler(double pitch, double roll, double yaw) {
+    // Rotation matrix around the X-axis (pitch)
+    Eigen::Matrix3d R_x;
+    R_x << 1, 0, 0,
+           0, cos(pitch), -sin(pitch),
+           0, sin(pitch), cos(pitch);
+    
+    // Rotation matrix around the Y-axis (roll)
+    Eigen::Matrix3d R_y;
+    R_y << cos(roll), 0, sin(roll),
+           0, 1, 0,
+           -sin(roll), 0, cos(roll);
+    
+    // Rotation matrix around the Z-axis (yaw)
+    Eigen::Matrix3d R_z;
+    R_z << cos(yaw), -sin(yaw), 0,
+           sin(yaw), cos(yaw), 0,
+           0, 0, 1;
+    
+    // Combined rotation matrix
+    Eigen::Matrix3d R = R_z * R_y * R_x;
+    
+    return R;
+}
+
+
+inline Pose dead_reckoning_IMUData(const topic_s& cur_topic, const Pose& initial_pose, double& last_timestamp) {
 
     Pose pose = initial_pose;
     Eigen::Vector3d velocity = Eigen::Vector3d::Zero();
-    double last_timestamp = topic_data[0].imu_data.timestamp;
+
+	double dt = (cur_topic.imu_data.timestamp / 1e9) - last_timestamp;
+    // last_timestamp = cur_topic.imu_data.timestamp / 1e9;
     
     // Vector3d velocity = Vector3d::Zero();
     // double last_timestamp = imu_data[0].timestamp;
 
-    for (const auto& data : topic_data) {
-        double dt = data.imu_data.timestamp - last_timestamp;
-        last_timestamp = data.imu_data.timestamp;
+    // for (const auto& data : cur_topic) {
+	// std::cout << dt << std::endl;
+	// last_timestamp = cur_topic.imu_data.timestamp;
 
-        // Update orientation using gyroscope data
-        Eigen::Vector3d omega = data.imu_data.gyro * dt;
-		Eigen::Quaterniond delta_orientation(Eigen::AngleAxisd(omega.norm(), omega.normalized()));
-        // Matrix3d omega_skew;
-        // omega_skew << 0, -omega.z(), omega.y(),
-        //               omega.z(), 0, -omega.x(),
-        //               -omega.y(), omega.x(), 0;
-        // Matrix3d delta_orientation = Matrix3d::Identity() + omega_skew;
-        pose.orientation = pose.orientation * delta_orientation;
+	// Update orientation using gyroscope data
+	Eigen::Vector3d omega = cur_topic.imu_data.gyro * dt;
+	// std::cout << cur_topic.imu_data.gyro[0] << std::endl;
+	// Eigen::Quaterniond delta_orientation(Eigen::AngleAxisd(omega.norm(), omega.normalized()));
+	Eigen::Matrix3d omega_skew;
+	omega_skew << 0, -omega.z(), omega.y(),
+	              omega.z(), 0, -omega.x(),
+	              -omega.y(), omega.x(), 0;
+	Eigen::Matrix3d delta_orientation = Eigen::Matrix3d::Identity() + omega_skew;
+	pose.orientation = pose.orientation * delta_orientation;
 
-        // Normalize the rotation matrix to avoid drift
-        pose.orientation.normalize();
+	// Normalize the rotation matrix to avoid drift
+	pose.orientation.normalize();
 
-        // Update position using accelerometer data
-        Eigen::Vector3d accel_world = pose.orientation * data.imu_data.accel; // Transform accel to world frame
-        velocity += accel_world * dt;
-        pose.position += velocity * dt;
-    }
+	// Update position using accelerometer data
+	Eigen::Vector3d accel_world = pose.orientation * cur_topic.imu_data.accel; // Transform accel to world frame
+	velocity += accel_world * dt;
+	pose.position += velocity * dt;
+    // }
 
     return pose;
 }
+
+inline void Plot(std::vector<double> x_points, std::vector<double> y_points, std::vector<double> z_points, std::vector<double> MinMax) {
+
+	const long fg = matplotlibcpp::figure(); // Define the figure handle number here
+
+	// Plot the best particle's X, Y, Z trajectory in 3D
+	std::map<std::string, std::string> kwargs;
+	kwargs["marker"] = "o";
+	kwargs["linestyle"] = "-";
+	kwargs["linewidth"] = "1";
+	kwargs["markersize"] = "12";
+	
+	matplotlibcpp::plot3(x_points, y_points, z_points, kwargs, fg);
+	matplotlibcpp::xlim(MinMax[0], MinMax[1]);
+	matplotlibcpp::ylim(MinMax[2], MinMax[3]);
+	// matplotlibcpp::zlim(MinMax[4], MinMax[5]);
+	matplotlibcpp::pause(0.05);
+	matplotlibcpp::title("Initialized Particles in 3D");
+	matplotlibcpp::xlabel("X position");
+	matplotlibcpp::ylabel("Y position");
+	matplotlibcpp::save("test.png");
+	matplotlibcpp::show();
+
+}
+
+// inline vector<vector<double>> test_kinematics(const Pose& initial_pose) {
+
+
+// }
+
+// inline void points_for_plot(const Particle& particle, const std::vector<vector<double>>& xyz_points) {
+// 	// std::vector<vector<double>> xyz_points;
+// 	std::vector<double> x_points;
+// 	std::vector<double> y_points;
+// 	std::vector<double> z_points;
+	
+// 	x_points.push_back(particle->x);
+// 	y_points.push_back(particle->y);
+// 	z_points.push_back(particle->z);
+
+// 	xyz_points->push_back(x_points);
+// 	xyz_points->push_back(y_points);
+// 	xyz_points->push_back(z_points);
+
+// 	// return xyz_points;
+// }
 
 // Function to apply rotation matrix to transform coordinates from local to global
 // void transformCoordinates(double& x, double& y, double& z, double delta_t, double yaw_rate, double pitch_rate, double roll_rate) {

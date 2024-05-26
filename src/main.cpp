@@ -7,15 +7,15 @@
 #include <ctime>
 #include <iomanip>
 #include <random>
-#include <matplotlibcpp.h>
+// #include <matplotlibcpp.h>
 
 #include "particle_filter.h"
 #include "helper_functions.h"
 
-namespace plt = matplotlibcpp;
+// namespace plt = matplotlibcpp;
 
 using namespace std;
-const long fg = plt::figure(); // Define the figure handle number here
+// const long fg = plt::figure(); // Define the figure handle number here
 
 
 
@@ -44,17 +44,23 @@ int main() {
 	 * if you used fused data from multiple sensors, it's difficult to find
 	 * these uncertainties directly.
 	 */
-	double sigma_position[3] = {0.3, 0.3, 0.3}; // GPS measurement uncertainty [x [m], y [m], z [m]]
+	double sigma_position[3] = {7, 7, 7}; // Position uncertainty [x [cm], y [cm], z [cm]]
+	double sigma_orient[3] = {0.05, 0.05, 0.05}; // GPS measurement uncertainty [x [m], y [m], z [m]]
 	// double sigma_position[3] = {0.3, 0.3, 0.01}; // GPS measurement uncertainty [x [m], y [m], theta [rad]]
 	// double sigma_landmark [2] = {0.3, 0.3}; // Landmark measurement uncertainty [x [m], y [m]]
-	double sigma_distance = 0.1; // Range measurement uncertainty [d1 [m], d2 [m], d3[m], d4[m], d5[m]]
+	double sigma_distance = 0.05; // Range measurement uncertainty [d1 [m], d2 [m], d3[m], d4[m], d5[m]]
 	// double sigma_distance[5] = {0.1, 0.1, 0.1, 0.1, 0.1}; // Range measurement uncertainty [d1 [m], d2 [m], d3[m], d4[m], d5[m]]
 
 	// noise generation
 	default_random_engine gen;
-	normal_distribution<double> N_x_init(0, sigma_position[0]);
-	normal_distribution<double> N_y_init(0, sigma_position[1]);
-	normal_distribution<double> N_z_init(0, sigma_position[2]);
+	// normal_distribution<double> N_x_init(0, sigma_position[0]);
+	// normal_distribution<double> N_y_init(0, sigma_position[1]);
+	// normal_distribution<double> N_z_init(0, sigma_position[2]);
+
+	// normal_distribution<double> N_pitch_init(0, sigma_orient[0]);
+	// normal_distribution<double> N_roll_init(0, sigma_orient[1]);
+	// normal_distribution<double> N_yaw_init(0, sigma_orient[2]);
+
 	normal_distribution<double> N_d_init(0, sigma_distance);
 	// normal_distribution<double> N_theta_init(0, sigma_pos[2]);
 	// normal_distribution<double> N_obs_x(0, sigma_landmark[0]);
@@ -120,6 +126,7 @@ int main() {
 	//// ?????????????????????????????????????
 
 	vector<double> best_particle_x, best_particle_y, best_particle_z;
+	double last_timestamp = sensor_meas[0].imu_data.timestamp / 1e9;
 	
 	for (int i = 0; i < num_time_steps; ++i) {
 		cout << "Time step: " << i << endl;
@@ -140,11 +147,14 @@ int main() {
 			// n_z = N_z_init(gen);
 			// n_d = N_d_init(gen);
 			// n_theta = N_theta_init(gen);
-			pf.init(sigma_position);
+			pf.init();
 		}
 		else {
 			// Predict the vehicle's next state (noiseless).
-			pf.prediction(delta_t_imu, sigma_position, sensor_meas[i-1]); 
+			// if (i==1) last_timestamp = sensor_meas[i-1].imu_data.timestamp / 1e9;
+			pf.prediction(delta_t_imu, sigma_position, sigma_orient, sensor_meas[i-1], last_timestamp); 
+			last_timestamp = sensor_meas[i-1].imu_data.timestamp/1e9;
+			// std::cout << last_timestamp << std::endl; 
 		}
 		// simulate the addition of noise to noiseless 'UWB data'.
 		/////////// ??????????? Why should I input noise to UWB sensor data?
@@ -199,35 +209,44 @@ int main() {
 		// 	}
 		// }
 
-		
+		////////// Plot ////////////
 		best_particle_x.push_back(estimated_x);
 		best_particle_y.push_back(estimated_y);
 		best_particle_z.push_back(estimated_z);
-
+		////////////////////////////
 
 	}
-	// Plot the best particle's X, Y, Z trajectory in 3D
-	std::map<std::string, std::string> kwargs;
-	kwargs["marker"] = "o";
-	kwargs["linestyle"] = "-";
-	kwargs["linewidth"] = "1";
-	kwargs["markersize"] = "12";
 	
-	plt::plot3(best_particle_x, best_particle_y, best_particle_z, kwargs, fg);
-	plt::xlim(pf.minX, pf.maxX);
-	plt::ylim(pf.minY, pf.maxY);
+	////////// Plot ////////////
+	// Predicted Particles Plot
+	std::vector<double> MinMax{pf.minX, pf.maxX, pf.minY, pf.maxY, 0.0, pf.maxZ};
+    Plot(best_particle_x, best_particle_y, best_particle_z, MinMax);
+	
+	////////////////////////////
+
+
+	// Plot the best particle's X, Y, Z trajectory in 3D
+	// std::map<std::string, std::string> kwargs;
+	// kwargs["marker"] = "o";
+	// kwargs["linestyle"] = "-";
+	// kwargs["linewidth"] = "1";
+	// kwargs["markersize"] = "12";
+	
+	// plt::plot3(best_particle_x, best_particle_y, best_particle_z, kwargs, fg);
+	// plt::xlim(pf.minX, pf.maxX);
+	// plt::ylim(pf.minY, pf.maxY);
+	// plt::pause(0.05);
+	// plt::title("Best Particle Trajectory in 3D");
+	// plt::save("test.png");
+	// plt::show();
 	// cout << best_particle_x << endl;
 	// cout << best_particle_y << endl;
 	// cout << best_particle_z << endl;
-	plt::pause(0.05);
 	// plt::clf();
 	// plt::xlabel("X position");
 	// plt::ylabel("Y position");
 	// plt::zlabel("Z position");
-	plt::title("Best Particle Trajectory in 3D");
-	plt::save("test.png");
-	plt::show();
-	cout << "test" << endl;
+	// cout << "test" << endl;
 
 		//// I think we can't use it since we don't have 'gt'
 /*

@@ -22,6 +22,8 @@ struct Particle {
 	double roll;
 	double yaw;
 
+	Eigen::Matrix3d R;
+
 	double weight;
 };
 
@@ -62,7 +64,8 @@ public:
 	 * @param std[] Array of dimension 3 [standard deviation of x [m], standard deviation of y [m]
 	 *   standard deviation of yaw [rad]]
 	 */
-	void init(double std_position[]);
+	void init();
+	// void init(double std_position[]);
 
 	/**
 	 * prediction Predicts the state for the next time step
@@ -73,7 +76,7 @@ public:
 	 * @param velocity Velocity of car from t to t+1 [m/s]
 	 * @param yaw_rate Yaw rate of car from t to t+1 [rad/s]
 	 */
-	void prediction(double delta_t, double std_position[], topic_s topic_data);
+	void prediction(double delta_t, double std_position[], double std_orient[], topic_s cur_topic, double& last_timestamp);
 	
 	/**
 	 * dataAssociation Finds which observations correspond to which landmarks (likely by using
