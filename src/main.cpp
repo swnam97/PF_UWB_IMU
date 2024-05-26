@@ -44,7 +44,8 @@ int main() {
 	 * if you used fused data from multiple sensors, it's difficult to find
 	 * these uncertainties directly.
 	 */
-	double sigma_position[3] = {0.3, 0.3, 0.01}; // GPS measurement uncertainty [x [m], y [m], theta [rad]]
+	double sigma_position[3] = {0.3, 0.3, 0.3}; // GPS measurement uncertainty [x [m], y [m], z [m]]
+	// double sigma_position[3] = {0.3, 0.3, 0.01}; // GPS measurement uncertainty [x [m], y [m], theta [rad]]
 	// double sigma_landmark [2] = {0.3, 0.3}; // Landmark measurement uncertainty [x [m], y [m]]
 	double sigma_distance = 0.1; // Range measurement uncertainty [d1 [m], d2 [m], d3[m], d4[m], d5[m]]
 	// double sigma_distance[5] = {0.1, 0.1, 0.1, 0.1, 0.1}; // Range measurement uncertainty [d1 [m], d2 [m], d3[m], d4[m], d5[m]]
@@ -134,10 +135,10 @@ int main() {
 		// Initialize particle filter if this is the first time step.
 		//// Just at the first step !!!
 		if (!pf.initialized()) {
-			n_x = N_x_init(gen);
-			n_y = N_y_init(gen);
-			n_z = N_z_init(gen);
-			n_d = N_d_init(gen);
+			// n_x = N_x_init(gen);
+			// n_y = N_y_init(gen);
+			// n_z = N_z_init(gen);
+			// n_d = N_d_init(gen);
 			// n_theta = N_theta_init(gen);
 			pf.init(sigma_position);
 		}
@@ -145,25 +146,29 @@ int main() {
 			// Predict the vehicle's next state (noiseless).
 			pf.prediction(delta_t_imu, sigma_position, sensor_meas[i-1]); 
 		}
-		// simulate the addition of noise to noiseless 'distance data'.
-		vector<topic_s> noisy_distances;
-		topic_s distance;
-		for (int j = 0; j < noisy_distances.size(); ++j) {
+		// simulate the addition of noise to noiseless 'UWB data'.
+		/////////// ??????????? Why should I input noise to UWB sensor data?
+		// vector<topic_s> noise_added_distances;
+		double distance;
+		UWBdata noisy_uwb_data;
+
+
+		for (int j = 0; j < sensor_meas[i].uwb_data.distances.size(); ++j) {
 			n_d = N_d_init(gen);
-			distance = noisy_distances[j];
-			distance.d1 = distance.d1 + n_d;
-			distance.d2 = distance.d2 + n_d;
-			distance.d3 = distance.d3 + n_d;
-			distance.d4 = distance.d4 + n_d;
-			distance.d5 = distance.d5 + n_d;
-			noisy_distances.push_back(distance);
+			distance = sensor_meas[i].uwb_data.distances[j];
+			distance += n_d;
+			// distance.d2 = distance.d2 + n_d;
+			// distance.d3 = distance.d3 + n_d;
+			// distance.d4 = distance.d4 + n_d;
+			// distance.d5 = distance.d5 + n_d;
+			noisy_uwb_data.distances[j] = distance;
 		}
 
 		// Update the weights and resample
 		// pf.updateWeights(sensor_range, sigma_landmark, noisy_observations, map);
 		// pf.resample();
 		
-		pf.updateWeights_uwb_online(uwb_range, sigma_distance, noisy_distances, anchor);
+		pf.updateWeights_uwb_online(uwb_range, sigma_distance, noisy_uwb_data, anchor);
 		pf.resample();
 		
 		// Calculate and output the average weighted error of the particle filter over all time steps so far.
@@ -171,17 +176,33 @@ int main() {
 		int num_particles = particles.size();
 		double highest_weight = 0.0;
 		Particle best_particle;
+		Particle estimated_particle;
+
+		double estimated_x = 0;
+		double estimated_y = 0;
+		double estimated_z = 0;
+
 		for (int i = 0; i < num_particles; ++i) {
-			if (particles[i].weight > highest_weight) {
-				highest_weight = particles[i].weight;
-				best_particle = particles[i];
-			}
+			estimated_x += particles[i].weight * particles[i].x; 
+			estimated_y += particles[i].weight * particles[i].y; 
+			estimated_z += particles[i].weight * particles[i].z; 
 		}
 
+		best_particle.x = estimated_x;
+		best_particle.y = estimated_y;
+		best_particle.z = estimated_z;
+
+		// for (int i = 0; i < num_particles; ++i) {
+		// 	if (particles[i].weight > highest_weight) {
+		// 		highest_weight = particles[i].weight;
+		// 		best_particle = particles[i];
+		// 	}
+		// }
+
 		
-		best_particle_x.push_back(best_particle.x);
-		best_particle_y.push_back(best_particle.y);
-		best_particle_z.push_back(best_particle.z);
+		best_particle_x.push_back(estimated_x);
+		best_particle_y.push_back(estimated_y);
+		best_particle_z.push_back(estimated_z);
 
 
 	}

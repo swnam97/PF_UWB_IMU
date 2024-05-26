@@ -12,6 +12,8 @@
 struct Particle {
 
 	int id;
+
+	// Pose particle_pose;
 	double x;
 	double y;
 	double z;
@@ -60,7 +62,7 @@ public:
 	 * @param std[] Array of dimension 3 [standard deviation of x [m], standard deviation of y [m]
 	 *   standard deviation of yaw [rad]]
 	 */
-	void init(double std[]);
+	void init(double std_position[]);
 
 	/**
 	 * prediction Predicts the state for the next time step
@@ -71,7 +73,7 @@ public:
 	 * @param velocity Velocity of car from t to t+1 [m/s]
 	 * @param yaw_rate Yaw rate of car from t to t+1 [rad/s]
 	 */
-	void prediction(double delta_t, double std_position[], topic_s sensor_measurement);
+	void prediction(double delta_t, double std_position[], topic_s topic_data);
 	
 	/**
 	 * dataAssociation Finds which observations correspond to which landmarks (likely by using
@@ -98,12 +100,13 @@ public:
 	
 
 	/// @brief 
-	/// @param sensor_range 
+	/// @param uwb_range 
 	/// @param std_distance 
-	/// @param distances 
+	/// @param uwb_data 
 	/// @param anchors 
-	void updateWeights_uwb_online(double sensor_range, double std_distance, std::vector<topic_s> sensor_measurements, 
-			Anchor anchors);
+	
+	void updateWeights_uwb_online(double uwb_range, double std_distance, 
+            UWBdata uwb_data, Anchor anchors);
 
 
 	/**

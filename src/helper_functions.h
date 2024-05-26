@@ -18,15 +18,59 @@
  * Struct representing one position/control measurement.
  */
 
-// struct IMUdata {
-//     double timestamp; // Time of the measurement
-//     Eigen::Vector3d accel;   // Accelerometer readings (x, y, z)
-//     Eigen::Vector3d gyro;    // Gyroscope readings (x, y, z)
-// };
+struct IMUdata {
+    double timestamp; // Time of the measurement
+    Eigen::Vector3d accel;   // Accelerometer readings (x, y, z)
+    Eigen::Vector3d gyro;    // Gyroscope readings (x, y, z)
+};
 
+struct UWBdata {
+    double timestamp;
+    Eigen::VectorXd distances;
+
+    UWBdata() : distances(5) {} // Initialize the distances vector with size 5
+};
+
+struct ODOMdata {
+    double timestamp; // Time of the measurement
+    Eigen::Vector3d accel;   // Accelerometer readings (x, y, z)
+    Eigen::Vector3d gyro;    // Gyroscope readings (x, y, z)
+};
+
+struct topic_s {
+    // IMU data
+	IMUdata imu_data;
+    // uint64_t imu_timestamp;
+    // double linear_acceleration_x;
+    // double linear_acceleration_y;
+    // double linear_acceleration_z;
+    // double angular_velocity_x;
+    // double angular_velocity_y;
+    // double angular_velocity_z;
+    // double orientation_x;
+    // double orientation_y;
+    // double orientation_z;
+    // double orientation_w;
+
+    // UWB data
+	UWBdata uwb_data;
+    // uint64_t uwb_timestamp;
+    // int d1;
+    // int d2;
+    // int d3;
+    // int d4;
+    // int d5;
+
+    // Encoder Odometry data
+	ODOMdata odom_data;
+    // uint64_t encoder_timestamp;
+    // double odom_x;
+    // double odom_y;
+};
 // struct UWBdata {
 	
 // 	// int id;				// Id of matching anchor in the environment.
+// 	double timestamp;
 // 	double d1;			// Range distance between position(from IMU) and 1st anchor [m]
 // 	double d2;			// Range distance between position(from IMU) and 2nd anchor [m]
 // 	double d3;			// Range distance between position(from IMU) and 3rd anchor [m]
@@ -34,47 +78,16 @@
 // 	double d5;			// Range distance between position(from IMU) and 5th anchor [m]
 // };
 
-// struct ODOMdata {
-//     double timestamp; // Time of the measurement
-//     Eigen::Vector3d accel;   // Accelerometer readings (x, y, z)
-//     Eigen::Vector3d gyro;    // Gyroscope readings (x, y, z)
+
+
+
+
+// struct control_s {
+	
+// 	double velocity;	// Velocity [m/s]
+// 	double yawrate;		// Yaw rate [rad/s]
 // };
 
-
-
-struct control_s {
-	
-	double velocity;	// Velocity [m/s]
-	double yawrate;		// Yaw rate [rad/s]
-};
-
-struct topic_s {
-    // IMU data
-    uint64_t imu_timestamp;
-    double linear_acceleration_x;
-    double linear_acceleration_y;
-    double linear_acceleration_z;
-    double angular_velocity_x;
-    double angular_velocity_y;
-    double angular_velocity_z;
-    double orientation_x;
-    double orientation_y;
-    double orientation_z;
-    double orientation_w;
-
-    // UWB data
-    uint64_t uwb_timestamp;
-    int d1;
-    int d2;
-    int d3;
-    int d4;
-    int d5;
-
-    // Encoder Odometry data
-    uint64_t encoder_timestamp;
-    double odom_x;
-    double odom_y;
-};
 
 /*
  * Struct representing one ground truth position.
@@ -107,11 +120,9 @@ struct position {
 };
 
 struct Pose {
-	Vector3d position;   // Position (x, y, z)
-    Matrix3d orientation; // Orientation as a rotation matrix
-}
-
-
+	Eigen::Vector3d position;   // Position (x, y, z)
+    Eigen::Matrix3d orientation; // Orientation as a rotation matrix
+};
 //=================================================================
 //=================================================================
 
@@ -138,34 +149,35 @@ inline double residual_distance(double pred_d1, double pred_d2, double pred_d3, 
 				+ (measured_d3 - pred_d3) * (measured_d3 - pred_d3) + (measured_d4 - pred_d4) * (measured_d4 - pred_d4) + (measured_d5 - pred_d5) * (measured_d5 - pred_d5));
 }
 
-inline Pose integrateIMUData(const std::vector<topic_s>& topic_data,
-							const Eigen::Vector3d& initial_position, 
-                            const Eigen::Quaterniond& initial_orientation) {
-    Pose pose;
-    pose.position = initial_position;
-    pose.orientation = initial_orientation;
-    
-    Vector3d velocity = Vector3d::Zero();
-    double last_timestamp = imu_data[0].timestamp;
+inline Pose dead_reckoning_IMUData(const std::vector<topic_s>& topic_data,
+									const Pose& initial_pose) {
 
-    for (const auto& data : imu_data) {
-        double dt = data.timestamp - last_timestamp;
-        last_timestamp = data.timestamp;
+    Pose pose = initial_pose;
+    Eigen::Vector3d velocity = Eigen::Vector3d::Zero();
+    double last_timestamp = topic_data[0].imu_data.timestamp;
+    
+    // Vector3d velocity = Vector3d::Zero();
+    // double last_timestamp = imu_data[0].timestamp;
+
+    for (const auto& data : topic_data) {
+        double dt = data.imu_data.timestamp - last_timestamp;
+        last_timestamp = data.imu_data.timestamp;
 
         // Update orientation using gyroscope data
-        Vector3d omega = data.gyro * dt;
-        Matrix3d omega_skew;
-        omega_skew << 0, -omega.z(), omega.y(),
-                      omega.z(), 0, -omega.x(),
-                      -omega.y(), omega.x(), 0;
-        Matrix3d delta_orientation = Matrix3d::Identity() + omega_skew;
+        Eigen::Vector3d omega = data.imu_data.gyro * dt;
+		Eigen::Quaterniond delta_orientation(Eigen::AngleAxisd(omega.norm(), omega.normalized()));
+        // Matrix3d omega_skew;
+        // omega_skew << 0, -omega.z(), omega.y(),
+        //               omega.z(), 0, -omega.x(),
+        //               -omega.y(), omega.x(), 0;
+        // Matrix3d delta_orientation = Matrix3d::Identity() + omega_skew;
         pose.orientation = pose.orientation * delta_orientation;
 
         // Normalize the rotation matrix to avoid drift
-        pose.orientation = pose.orientation.orthogonalization();
+        pose.orientation.normalize();
 
         // Update position using accelerometer data
-        Vector3d accel_world = pose.orientation * data.accel; // Transform accel to world frame
+        Eigen::Vector3d accel_world = pose.orientation * data.imu_data.accel; // Transform accel to world frame
         velocity += accel_world * dt;
         pose.position += velocity * dt;
     }
@@ -297,7 +309,7 @@ inline bool read_anchor_data(std::string filename, Anchor& anchor) {
 		iss_anchor >> z;
 
 		// Declare single_anchor:
-		Anchor::single_anchors_s single_anchor_temp;
+		Anchor::single_anchor_s single_anchor_temp;
 
 		// Set values
 		single_anchor_temp.id_i = id_i;
@@ -338,30 +350,28 @@ inline bool read_topic_data(const std::string& filename, std::vector<topic_s>& s
         topic_s meas;
 
         // Read IMU data
-        iss_pos >> meas.imu_timestamp
-                >> meas.linear_acceleration_x
-                >> meas.linear_acceleration_y
-                >> meas.linear_acceleration_z
-                >> meas.angular_velocity_x
-                >> meas.angular_velocity_y
-                >> meas.angular_velocity_z
-                >> meas.orientation_x
-                >> meas.orientation_y
-                >> meas.orientation_z
-                >> meas.orientation_w;
+        iss_pos >> meas.imu_data.timestamp
+                >> meas.imu_data.accel.x()
+                >> meas.imu_data.accel.y()
+                >> meas.imu_data.accel.z()
+                >> meas.imu_data.gyro.x()
+                >> meas.imu_data.gyro.y()
+                >> meas.imu_data.gyro.z();
 
         // Read UWB data
-        iss_pos >> meas.uwb_timestamp
-                >> meas.d1
-                >> meas.d2
-                >> meas.d3
-                >> meas.d4
-                >> meas.d5;
+        iss_pos >> meas.uwb_data.timestamp;
+        for (int i = 0; i < 5; ++i) {
+            iss_pos >> meas.uwb_data.distances[i];
+        }
 
         // Read Encoder Odometry data
-        iss_pos >> meas.encoder_timestamp
-                >> meas.odom_x
-                >> meas.odom_y;
+        iss_pos >> meas.odom_data.timestamp
+                >> meas.odom_data.accel.x()
+                >> meas.odom_data.accel.y()
+                >> meas.odom_data.accel.z()
+                >> meas.odom_data.gyro.x()
+                >> meas.odom_data.gyro.y()
+                >> meas.odom_data.gyro.z();
 
         // Add to list of sensor measurements:
         sensor_meas.push_back(meas);
@@ -375,44 +385,44 @@ inline bool read_topic_data(const std::string& filename, std::vector<topic_s>& s
  * @param filename Name of file containing control measurements.
  * @output True if opening and reading file was successful
  */
-inline bool read_topic_data(std::string filename, std::vector<control_s>& position_meas) {
+// inline bool read_topic_data(std::string filename, std::vector<control_s>& position_meas) {
 
-	// Get file of position measurements:
-	std::ifstream in_file_pos(filename.c_str(),std::ifstream::in);
-	// Return if we can't open the file.
-	if (!in_file_pos) {
-		return false;
-	}
+// 	// Get file of position measurements:
+// 	std::ifstream in_file_pos(filename.c_str(),std::ifstream::in);
+// 	// Return if we can't open the file.
+// 	if (!in_file_pos) {
+// 		return false;
+// 	}
 
-	// Declare single line of position measurement file:
-	std::string line_pos;
+// 	// Declare single line of position measurement file:
+// 	std::string line_pos;
 
-	// Run over each single line:
-	while(getline(in_file_pos, line_pos)){
+// 	// Run over each single line:
+// 	while(getline(in_file_pos, line_pos)){
 
-		std::istringstream iss_pos(line_pos);
+// 		std::istringstream iss_pos(line_pos);
 
-		// Declare position values:
-		double velocity, yawrate;
+// 		// Declare position values:
+// 		double velocity, yawrate;
 
-		// Declare single control measurement:
-		control_s meas;
+// 		// Declare single control measurement:
+// 		control_s meas;
 
-		//read data from line to values:
+// 		//read data from line to values:
 
-		iss_pos >> velocity;
-		iss_pos >> yawrate;
+// 		iss_pos >> velocity;
+// 		iss_pos >> yawrate;
 
 		
-		// Set values
-		meas.velocity = velocity;
-		meas.yawrate = yawrate;
+// 		// Set values
+// 		meas.velocity = velocity;
+// 		meas.yawrate = yawrate;
 
-		// Add to list of control measurements:
-		position_meas.push_back(meas);
-	}
-	return true;
-}
+// 		// Add to list of control measurements:
+// 		position_meas.push_back(meas);
+// 	}
+// 	return true;
+// }
 
 /* Reads ground truth data from a file.
  * @param filename Name of file containing ground truth.

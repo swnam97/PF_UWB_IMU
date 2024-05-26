@@ -11,7 +11,7 @@
 class Anchor {
 public:
 	
-	struct single_anchors_s{
+	struct single_anchor_s{
 
 		int id_i ; // Anchor ID
 		double x; // Anchor x-position in the map (global coordinates)
@@ -20,7 +20,7 @@ public:
 	};
 
     
-	std::vector<single_anchors_s> anchor_list ; // List of anchors in the map
+	std::vector<single_anchor_s> anchor_list ; // List of anchors in the map
 
     // Function to find minimum and maximum values for x, y, z
     void findMinMaxValues(float& minX, float& maxX, float& minY, float& maxY, float& minZ, float& maxZ) const {
@@ -31,19 +31,19 @@ public:
 
         // Using lambda functions to find min and max for x
         auto minMaxX = std::minmax_element(anchor_list.begin(), anchor_list.end(), 
-            [](const single_anchors_s& a, const single_anchors_s& b) { return a.x < b.x; });
+            [](const single_anchor_s& a, const single_anchor_s& b) { return a.x < b.x; });
         minX = minMaxX.first->x;
         maxX = minMaxX.second->x;
 
         // Using lambda functions to find min and max for y
         auto minMaxY = std::minmax_element(anchor_list.begin(), anchor_list.end(), 
-            [](const single_anchors_s& a, const single_anchors_s& b) { return a.y < b.y; });
+            [](const single_anchor_s& a, const single_anchor_s& b) { return a.y < b.y; });
         minY = minMaxY.first->y;
         maxY = minMaxY.second->y;
 
         // Using lambda functions to find min and max for z
         auto minMaxZ = std::minmax_element(anchor_list.begin(), anchor_list.end(), 
-            [](const single_anchors_s& a, const single_anchors_s& b) { return a.z < b.z; });
+            [](const single_anchor_s& a, const single_anchor_s& b) { return a.z < b.z; });
         minZ = minMaxZ.first->z;
         maxZ = minMaxZ.second->z;
     }
