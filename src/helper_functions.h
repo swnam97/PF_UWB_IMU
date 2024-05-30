@@ -22,8 +22,8 @@
 
 struct IMUdata {
     double timestamp; // Time of the measurement
-    Eigen::Vector3d accel;   // Accelerometer readings (x, y, z)
-    Eigen::Vector3d gyro;    // Gyroscope readings (x, y, z)
+    Eigen::Vector3d accel;   // Accelerometer readings (x, y, z) [m]
+    Eigen::Vector3d gyro;    // Gyroscope readings (x, y, z) [m]
 };
 
 struct UWBdata {
@@ -35,8 +35,8 @@ struct UWBdata {
 
 struct ODOMdata {
     double timestamp; // Time of the measurement
-    Eigen::Vector3d accel;   // Accelerometer readings (x, y, z)
-    Eigen::Vector3d gyro;    // Gyroscope readings (x, y, z)
+    Eigen::Vector3d position;   // Position readings (x, y, z)
+    // Eigen::Vector3d gyro;    // Gyroscope readings (x, y, z)
 };
 
 struct topic_s {
@@ -196,7 +196,9 @@ inline Eigen::Matrix3d rotationMatrixFromEuler(double pitch, double roll, double
 }
 
 
-inline Pose dead_reckoning_IMUData(const topic_s& cur_topic, const Pose& initial_pose, double& last_timestamp) {
+inline Pose dead_reckoning_IMUData(topic_s& cur_topic, const Pose& initial_pose, double& last_timestamp) {
+
+	// std::cout << initial_pose.position << std::endl;
 
     Pose pose = initial_pose;
     Eigen::Vector3d velocity = Eigen::Vector3d::Zero();
@@ -208,10 +210,12 @@ inline Pose dead_reckoning_IMUData(const topic_s& cur_topic, const Pose& initial
     // double last_timestamp = imu_data[0].timestamp;
 
     // for (const auto& data : cur_topic) {
-	// std::cout << dt << std::endl;
+	// std::cout << cur_topic.imu_data.accel[0] << std::endl;
 	// last_timestamp = cur_topic.imu_data.timestamp;
 
 	// Update orientation using gyroscope data
+	// cur_topic.imu_data.accel[2] += 9.81;
+	// std::cout << cur_topic.imu_data.accel.z() << std::endl;
 	Eigen::Vector3d omega = cur_topic.imu_data.gyro * dt;
 	// std::cout << cur_topic.imu_data.gyro[0] << std::endl;
 	// Eigen::Quaterniond delta_orientation(Eigen::AngleAxisd(omega.norm(), omega.normalized()));
@@ -220,16 +224,30 @@ inline Pose dead_reckoning_IMUData(const topic_s& cur_topic, const Pose& initial
 	              omega.z(), 0, -omega.x(),
 	              -omega.y(), omega.x(), 0;
 	Eigen::Matrix3d delta_orientation = Eigen::Matrix3d::Identity() + omega_skew;
+
+
 	pose.orientation = pose.orientation * delta_orientation;
 
 	// Normalize the rotation matrix to avoid drift
 	pose.orientation.normalize();
 
+	// std::cout << "======start=======" << std::endl;
+	// std::cout << pose.orientation << std::endl;
+	// std::cout << "=======end======" << std::endl;
+
 	// Update position using accelerometer data
-	Eigen::Vector3d accel_world = pose.orientation * cur_topic.imu_data.accel; // Transform accel to world frame
+	Eigen::Vector3d accel_world = pose.orientation * cur_topic.imu_data.accel*100; // Transform accel to world frame
 	velocity += accel_world * dt;
+
+	// std::cout << "======start=======" << std::endl;
+	// std::cout << pose.position << std::endl;
 	pose.position += velocity * dt;
+	// std::cout << "\n" << std::endl;
     // }
+
+	// std::cout << pose.position << std::endl;
+	// std::cout << "=======end======" << std::endl;
+	
 
     return pose;
 }
@@ -243,18 +261,38 @@ inline void Plot(std::vector<double> x_points, std::vector<double> y_points, std
 	kwargs["marker"] = "o";
 	kwargs["linestyle"] = "-";
 	kwargs["linewidth"] = "1";
-	kwargs["markersize"] = "12";
+	kwargs["markersize"] = "3";
 	
+	// Plot the current data using scatter
+	// matplotlibcpp::figure_size(800, 600);
+	// // plt::plotting::Axes3d ax = plt::plotting::Axes3d();
+	// // Clear the previous plot
+	matplotlibcpp::clf();
+	// matplotlibcpp::scatter(x_points, y_points, z_points, 3); // 10 is the marker size
+	// // Draw the plot
+	// matplotlibcpp::draw();
+	// matplotlibcpp::pause(0.01); // Pause for a short period to create an animation effect
+
+	// plt::scatter3(x_points, y_points, z_points, 3.0, kwargs); // 10 is the marker size
+
+
+
+
 	matplotlibcpp::plot3(x_points, y_points, z_points, kwargs, fg);
 	matplotlibcpp::xlim(MinMax[0], MinMax[1]);
 	matplotlibcpp::ylim(MinMax[2], MinMax[3]);
 	// matplotlibcpp::zlim(MinMax[4], MinMax[5]);
-	matplotlibcpp::pause(0.05);
+
+	matplotlibcpp::draw();
+	// matplotlibcpp::pause(1);
+	matplotlibcpp::pause(0.01);
 	matplotlibcpp::title("Initialized Particles in 3D");
 	matplotlibcpp::xlabel("X position");
 	matplotlibcpp::ylabel("Y position");
-	matplotlibcpp::save("test.png");
 	matplotlibcpp::show();
+	// matplotlibcpp::zlabel("Y position");
+	// matplotlibcpp::save("test.png");
+	
 
 }
 
@@ -438,6 +476,10 @@ inline bool read_topic_data(const std::string& filename, std::vector<topic_s>& s
         return false;
     }
 
+	if (!getline(in_file_pos, line_pos)) {
+        return false;
+    }
+
     // Run over each single line:
     while (getline(in_file_pos, line_pos)) {
         std::istringstream iss_pos(line_pos);
@@ -453,6 +495,9 @@ inline bool read_topic_data(const std::string& filename, std::vector<topic_s>& s
                 >> meas.imu_data.gyro.y()
                 >> meas.imu_data.gyro.z();
 
+		double temp;
+        iss_pos >> temp >> temp >> temp >> temp;
+
         // Read UWB data
         iss_pos >> meas.uwb_data.timestamp;
         for (int i = 0; i < 5; ++i) {
@@ -461,12 +506,14 @@ inline bool read_topic_data(const std::string& filename, std::vector<topic_s>& s
 
         // Read Encoder Odometry data
         iss_pos >> meas.odom_data.timestamp
-                >> meas.odom_data.accel.x()
-                >> meas.odom_data.accel.y()
-                >> meas.odom_data.accel.z()
-                >> meas.odom_data.gyro.x()
-                >> meas.odom_data.gyro.y()
-                >> meas.odom_data.gyro.z();
+                >> meas.odom_data.position.x()
+                >> meas.odom_data.position.y();
+                // >> meas.odom_data.accel.z()
+                // >> meas.odom_data.gyro.x()
+                // >> meas.odom_data.gyro.y()
+                // >> meas.odom_data.gyro.z();
+
+		meas.odom_data.position.z() = 0.0;
 
         // Add to list of sensor measurements:
         sensor_meas.push_back(meas);

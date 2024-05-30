@@ -44,6 +44,7 @@ class ParticleFilter {
 public:
 	Anchor anchor;
 	float minX, maxX, minY, maxY, minZ, maxZ;
+	double residual;
 
 	// Set of current particles
 	std::vector<Particle> particles;
