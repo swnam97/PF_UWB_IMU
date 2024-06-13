@@ -1,0 +1,6 @@
+reviewer
+submission_instructions.*
+build
+cmake-build-debug/
+.idea/
+src/backup
