@@ -39,7 +39,6 @@ class ParticleFilter {
 	bool is_initialized;
 	
 	// Vector of weights of all particles
-	std::vector<double> weights;
 	
 public:
 	Anchor anchor;
@@ -48,6 +47,7 @@ public:
 
 	// Set of current particles
 	std::vector<Particle> particles;
+	std::vector<double> weights;
 
 	// Constructor
 	// @param M Number of particles
@@ -119,6 +119,10 @@ public:
 	 */
 	void resample();
 	
+
+	Pose get_best_estimate() const;
+
+
 	/*
 	 * write Writes particle positions to a file.
 	 * @param filename File to write particle positions to.

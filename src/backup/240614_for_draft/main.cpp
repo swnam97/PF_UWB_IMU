@@ -7,7 +7,6 @@
 #include <ctime>
 #include <iomanip>
 #include <random>
-#include <deque>
 
 #include <ros/ros.h>
 #include <sensor_msgs/Imu.h>
@@ -37,11 +36,9 @@ double last_timestamp_uwb = 0.0;
 double delta_t_imu = 0.1; // Time elapsed between measurements [sec]
 double delta_t_uwb = 0.1; // Time elapsed between measurements [sec]
 double uwb_range = 10; // Sensor range [m]
-// double sigma_position[3] = {0.5, 0.5, 0.5}; // Position uncertainty [x [m], y [m], z [m]]
-// double sigma_orient[3] = {M_PI/4, M_PI/4, M_PI/4}; // Orientation uncertainty [x [rad], y [rad], z [rad]]
-double sigma_position[3] = {0.1, 0.1, 0.1}; // Position uncertainty [x [m], y [m], z [m]]
-double sigma_orient[3] = {M_PI/36, M_PI/36, M_PI/36}; // Orientation uncertainty [x [rad], y [rad], z [rad]]
+double sigma_position[3] = {0.5, 0.5, 0.5}; // Position uncertainty [x [m], y [m], z [m]]
 // double sigma_position[3] = {0.1, 0.1, 0.1}; // Position uncertainty [x [m], y [m], z [m]]
+double sigma_orient[3] = {M_PI/4, M_PI/4, M_PI/4}; // Orientation uncertainty [x [rad], y [rad], z [rad]]
 // double sigma_orient[3] = {M_PI/12, M_PI/12, M_PI/12}; // Orientation uncertainty [x [rad], y [rad], z [rad]]
 double sigma_distance = 0.05; // Range measurement uncertainty [m]
 
@@ -88,124 +85,15 @@ void imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {
 }
 
 
-// void uwbCallback(const nlink_parser::LinktrackTagframe0::ConstPtr& msg, ros::Publisher estimated_path_pub , ros::Publisher uwb_path_pub) {
-//     if (!initialized) return;
-//     if (imu_received){
-
-//         double uwb_timestamp = msg->system_time / 1000.0; // Assuming system_time is in milliseconds
-
-//         double sum_of_squares = 0.0;
-
-//         // // Check if the current UWB timestamp is the same as the last timestamp to avoid duplicate updates
-//         // if (uwb_timestamp == last_timestamp_uwb) {
-//         //     return; // Skip this update as it's already been processed
-//         // }
-
-//         topic_s cur_topic;
-//         cur_topic.uwb_data.timestamp = uwb_timestamp;
-//         cur_topic.uwb_data.distances = Eigen::VectorXd(8);
-
-//         static std::vector<std::vector<double>> uwb_x_data, uwb_y_data, uwb_z_data;
-//         static std::vector<std::vector<double>> pf_x_data, pf_y_data, pf_z_data;
-//         static std::vector<double> uwb_x_row, uwb_y_row, uwb_z_row;
-//         static std::vector<double> pf_x_row, pf_y_row, pf_z_row;
-
-//         // cout << "========================" << endl;
-//         // cout << cur_topic.uwb_data.distances << endl;
-//         // cout << "========================" << endl;
-//         // cout << "UWB callback 1" << endl;
-
-//         for (int i = 0; i < 8; ++i) {
-//             cur_topic.uwb_data.distances[i] = msg->dis_arr[i];
-//             if (i<2) cur_topic.uwb_data.position[i] = msg->pos_3d[i];
-//             else if (i==2) cur_topic.uwb_data.position[i] = -(msg->pos_3d[i]);
-//         }
-
-//         last_timestamp_uwb = cur_topic.uwb_data.timestamp;
-
-//         if (pf.initialized()) {
-//             pf.updateWeights_uwb_online(uwb_range, sigma_distance, cur_topic.uwb_data, pf.anchor);
-//             pf.resample();
-//             // cout << pf.particles[1].x << endl;
-//             imu_received = false;
-//             imu_twice = false;
-//         }
-//         // cout << "UWB callback 2" << endl;
-
-//         Pose estimated_pose = pf.get_best_estimate();
-//         // cout << "UWB callback 3" << endl;
-//         // ROS_INFO("Best estimate: x: %f, y: %f, z: %f", estimated_pose.position.x(), estimated_pose.position.y(), estimated_pose.position.z());
-//         // ROS_INFO("Best estimate: roll: %f, pitch: %f, yaw: %f", rotationMatrixToEuler(estimated_pose.orientation)[0], rotationMatrixToEuler(estimated_pose.orientation)[1], rotationMatrixToEuler(estimated_pose.orientation)[2]);
-
-//         for (double weight : pf.weights) {
-//             sum_of_squares += weight * weight;
-//         }
-
-//         double N_eff = 1 / sum_of_squares;
-//         // cout << "N_eff: " << N_eff << endl;
-
-
-//         nav_msgs::Path estimated_path;
-//         geometry_msgs::PoseStamped pose_;
-
-//         pose_.header.frame_id = "estimated_frame";
-//         pose_.header.stamp = ros::Time::now();
-
-//         pose_.pose.position.x = estimated_pose.position.x();
-//         pose_.pose.position.y = estimated_pose.position.y();
-//         pose_.pose.position.z = estimated_pose.position.z();
-
-
-//         Eigen::Quaterniond q = rotationMatrixToQuaternion(estimated_pose.orientation);
-//         pose_.pose.orientation.x = q.x();
-//         pose_.pose.orientation.y = q.y();
-//         pose_.pose.orientation.z = q.z();
-//         pose_.pose.orientation.w = q.w();
-
-//         estimated_path.header.frame_id = "estimated_frame";
-//         estimated_path.header.stamp = ros::Time::now();
-//         estimated_path.poses.push_back(pose_);
-
-//         estimated_path_pub.publish(estimated_path);
-
-
-
-//         // Plot the position if pos_3d data is available
-//         if (msg->pos_3d.size() == 3) {
-//             nav_msgs::Path uwb_path;
-//             geometry_msgs::PoseStamped pose;
-            
-
-//             uwb_x_row.push_back(msg->pos_3d[0]);
-//             uwb_y_row.push_back(msg->pos_3d[1]);
-//             uwb_z_row.push_back(msg->pos_3d[2]);
-
-//             pose.header.frame_id = "uwb_frame";
-//             pose.header.stamp = ros::Time::now();
-
-//             pose.pose.position.x = msg->pos_3d[0];
-//             pose.pose.position.y = msg->pos_3d[1];
-//             pose.pose.position.z = msg->pos_3d[2];
-
-//             pose.pose.orientation.x = 0;
-//             pose.pose.orientation.y = 0;
-//             pose.pose.orientation.z = 0;
-//             pose.pose.orientation.w = 1;
-
-//             uwb_path.header.frame_id = "uwb_frame";
-//             uwb_path.header.stamp = ros::Time::now();
-//             uwb_path.poses.push_back(pose);
-
-//             uwb_path_pub.publish(uwb_path);
-//         }
-            
-//     }
-
-// }
 void uwbCallback(const nlink_parser::LinktrackTagframe0::ConstPtr& msg, ros::Publisher estimated_path_pub , ros::Publisher uwb_path_pub) {
     if (!initialized) return;
 
     double uwb_timestamp = msg->system_time / 1000.0; // Assuming system_time is in milliseconds
+
+    // // Check if the current UWB timestamp is the same as the last timestamp to avoid duplicate updates
+    // if (uwb_timestamp == last_timestamp_uwb) {
+    //     return; // Skip this update as it's already been processed
+    // }
 
     topic_s cur_topic;
     cur_topic.uwb_data.timestamp = uwb_timestamp;
@@ -216,10 +104,15 @@ void uwbCallback(const nlink_parser::LinktrackTagframe0::ConstPtr& msg, ros::Pub
     static std::vector<double> uwb_x_row, uwb_y_row, uwb_z_row;
     static std::vector<double> pf_x_row, pf_y_row, pf_z_row;
 
+    // cout << "========================" << endl;
+    // cout << cur_topic.uwb_data.distances << endl;
+    // cout << "========================" << endl;
+    // cout << "UWB callback 1" << endl;
+
     for (int i = 0; i < 8; ++i) {
         cur_topic.uwb_data.distances[i] = msg->dis_arr[i];
-        if (i < 2) cur_topic.uwb_data.position[i] = msg->pos_3d[i];
-        else if (i == 2) cur_topic.uwb_data.position[i] = -(msg->pos_3d[i]);
+        if (i<2) cur_topic.uwb_data.position[i] = msg->pos_3d[i];
+        else if (i==2) cur_topic.uwb_data.position[i] = -(msg->pos_3d[i]);
     }
 
     last_timestamp_uwb = cur_topic.uwb_data.timestamp;
@@ -227,25 +120,16 @@ void uwbCallback(const nlink_parser::LinktrackTagframe0::ConstPtr& msg, ros::Pub
     if (pf.initialized()) {
         pf.updateWeights_uwb_online(uwb_range, sigma_distance, cur_topic.uwb_data, pf.anchor);
         pf.resample();
-        imu_received = false;
+        // cout << pf.particles[1].x << endl;
+		imu_received = false;
         imu_twice = false;
     }
+    // cout << "UWB callback 2" << endl;
 
     Pose estimated_pose = pf.get_best_estimate();
+    // cout << "UWB callback 3" << endl;
     ROS_INFO("Best estimate: x: %f, y: %f, z: %f", estimated_pose.position.x(), estimated_pose.position.y(), estimated_pose.position.z());
-
-    static std::deque<Pose> pose_history;
-
-    if (pose_history.size() >= 3) {
-        pose_history.pop_front();
-    }
-    pose_history.push_back(estimated_pose);
-
-    Eigen::Vector3d avg_position(0, 0, 0);
-    for (const auto& pose : pose_history) {
-        avg_position += pose.position;
-    }
-    avg_position /= pose_history.size();
+    // ROS_INFO("Best estimate: roll: %f, pitch: %f, yaw: %f", rotationMatrixToEuler(estimated_pose.orientation)[0], rotationMatrixToEuler(estimated_pose.orientation)[1], rotationMatrixToEuler(estimated_pose.orientation)[2]);
 
     nav_msgs::Path estimated_path;
     geometry_msgs::PoseStamped pose_;
@@ -253,9 +137,10 @@ void uwbCallback(const nlink_parser::LinktrackTagframe0::ConstPtr& msg, ros::Pub
     pose_.header.frame_id = "estimated_frame";
     pose_.header.stamp = ros::Time::now();
 
-    pose_.pose.position.x = avg_position.x();
-    pose_.pose.position.y = avg_position.y();
-    pose_.pose.position.z = avg_position.z();
+    pose_.pose.position.x = estimated_pose.position.x();
+    pose_.pose.position.y = estimated_pose.position.y();
+    pose_.pose.position.z = estimated_pose.position.z();
+
 
     Eigen::Quaterniond q = rotationMatrixToQuaternion(estimated_pose.orientation);
     pose_.pose.orientation.x = q.x();
@@ -269,9 +154,13 @@ void uwbCallback(const nlink_parser::LinktrackTagframe0::ConstPtr& msg, ros::Pub
 
     estimated_path_pub.publish(estimated_path);
 
+
+
+    // Plot the position if pos_3d data is available
     if (msg->pos_3d.size() == 3) {
         nav_msgs::Path uwb_path;
         geometry_msgs::PoseStamped pose;
+        
 
         uwb_x_row.push_back(msg->pos_3d[0]);
         uwb_y_row.push_back(msg->pos_3d[1]);
@@ -294,7 +183,43 @@ void uwbCallback(const nlink_parser::LinktrackTagframe0::ConstPtr& msg, ros::Pub
         uwb_path.poses.push_back(pose);
 
         uwb_path_pub.publish(uwb_path);
+        
+
+        // std::vector<double> MinMax{pf.minX, pf.maxX, pf.minY, pf.maxY, 0.0, pf.maxZ};
+        // cout << "uwb_z: " << msg->pos_3d[2] << endl;
+        // Plot(uwb_x, uwb_y, uwb_z, MinMax);
+        // cout << "Here ????????" << endl;
+        // plotData(uwb_x, uwb_y, uwb_z);
+        
     }
+
+    // pf_x_row.push_back(estimated_pose.position.x());
+    // pf_y_row.push_back(estimated_pose.position.y());
+    // pf_z_row.push_back(estimated_pose.position.z());
+
+    // if (uwb_x_row.size() >= 2 && uwb_x_row.back() == uwb_x_row[uwb_x_row.size() - 2]) {
+    //     // Append to the 2D vectors and reset the current row
+    //     uwb_x_data.push_back(uwb_x_row);
+    //     uwb_y_data.push_back(uwb_y_row);
+    //     uwb_z_data.push_back(uwb_z_row);
+    //     uwb_x_row.clear();
+    //     uwb_y_row.clear();
+    //     uwb_z_row.clear();
+    // }
+
+    // if (pf_x_row.size() >= 2 && pf_x_row.back() == pf_x_row[pf_x_row.size() - 2]) {
+    //     // Append to the 2D vectors and reset the current row
+    //     pf_x_data.push_back(pf_x_row);
+    //     pf_y_data.push_back(pf_y_row);
+    //     pf_z_data.push_back(pf_z_row);
+    //     pf_x_row.clear();
+    //     pf_y_row.clear();
+    //     pf_z_row.clear();
+    // }
+
+    // plotData(uwb_x_data, uwb_y_data, uwb_z_data, pf_x_data, pf_y_data, pf_z_data);
+    // cout << "UWB callback 4" << endl;
+
 }
 
 

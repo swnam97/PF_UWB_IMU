@@ -29,8 +29,9 @@ struct IMUdata {
 struct UWBdata {
     double timestamp;
     Eigen::VectorXd distances;
+	Eigen::Vector3d position;
 
-    UWBdata() : distances(5) {} // Initialize the distances vector with size 5
+    UWBdata() : distances(8) {} // Initialize the distances vector with size 8
 };
 
 struct ODOMdata {
@@ -151,6 +152,11 @@ inline double residual_distance(double pred_d1, double pred_d2, double pred_d3, 
 				+ (measured_d3 - pred_d3) * (measured_d3 - pred_d3) + (measured_d4 - pred_d4) * (measured_d4 - pred_d4) + (measured_d5 - pred_d5) * (measured_d5 - pred_d5));
 }
 
+inline double residual_position(Eigen::Vector3d measured_position, Eigen::Vector3d predicted_position) {
+	return sqrt((measured_position.x() - predicted_position.x()) * (measured_position.x() - predicted_position.x()) + (measured_position.y() - predicted_position.y()) * (measured_position.y() - predicted_position.y()) 
+				+ (measured_position.z() - predicted_position.z()) * (measured_position.z() - predicted_position.z()));
+}
+
 inline double generateRandomInDisjointIntervals(std::default_random_engine &gen, double min1, double max1, double min2, double max2) {
     // Create uniform real distributions for the disjoint intervals
     std::uniform_real_distribution<double> dist_first_interval(min1, max1);
@@ -169,19 +175,19 @@ inline double generateRandomInDisjointIntervals(std::default_random_engine &gen,
     }
 }
 
-// Function to compute rotation matrix from pitch, roll, and yaw
-inline Eigen::Matrix3d rotationMatrixFromEuler(double pitch, double roll, double yaw) {
-    // Rotation matrix around the X-axis (pitch)
+// Function to compute rotation matrix from roll, pitch, and yaw
+inline Eigen::Matrix3d rotationMatrixFromEuler(double roll, double pitch, double yaw) {
+    // Rotation matrix around the X-axis (roll)
     Eigen::Matrix3d R_x;
     R_x << 1, 0, 0,
-           0, cos(pitch), -sin(pitch),
-           0, sin(pitch), cos(pitch);
+           0, cos(roll), -sin(roll),
+           0, sin(roll), cos(roll);
     
-    // Rotation matrix around the Y-axis (roll)
+    // Rotation matrix around the Y-axis (pitch)
     Eigen::Matrix3d R_y;
-    R_y << cos(roll), 0, sin(roll),
+    R_y << cos(pitch), 0, sin(pitch),
            0, 1, 0,
-           -sin(roll), 0, cos(roll);
+           -sin(pitch), 0, cos(pitch);
     
     // Rotation matrix around the Z-axis (yaw)
     Eigen::Matrix3d R_z;
@@ -196,14 +202,47 @@ inline Eigen::Matrix3d rotationMatrixFromEuler(double pitch, double roll, double
 }
 
 
-inline Pose dead_reckoning_IMUData(topic_s& cur_topic, const Pose& initial_pose, double& last_timestamp) {
+// Function to convert rotation matrix to Euler angles
+inline Eigen::Vector3d rotationMatrixToEuler(const Eigen::Matrix3d& R) {
+    Eigen::Vector3d eulerAngles;
 
-	// std::cout << initial_pose.position << std::endl;
+    // Assuming the angles are in radians.
+    if (R(2, 0) < 1) {
+        if (R(2, 0) > -1) {
+            eulerAngles[1] = asin(R(2, 0)); // pitch
+            eulerAngles[0] = atan2(-R(2, 1), R(2, 2)); // roll
+            eulerAngles[2] = atan2(-R(1, 0), R(0, 0)); // yaw
+        } else {
+            // R(2, 0) = -1
+            eulerAngles[1] = -M_PI / 2;
+            eulerAngles[0] = -atan2(R(1, 2), R(1, 1));
+            eulerAngles[2] = 0;
+        }
+    } else {
+        // R(2, 0) = 1
+        eulerAngles[1] = M_PI / 2;
+        eulerAngles[0] = atan2(R(1, 2), R(1, 1));
+        eulerAngles[2] = 0;
+    }
 
-    Pose pose = initial_pose;
+    return eulerAngles;
+}
+
+inline Eigen::Quaterniond rotationMatrixToQuaternion(const Eigen::Matrix3d& R) {
+    Eigen::Quaterniond q(R);
+    return q;
+}
+
+
+inline Pose dead_reckoning_IMUData(topic_s& cur_topic, const Pose& sampled_pose, double& last_timestamp) {
+
+	// std::cout << sampled_pose.position << std::endl;
+
+    Pose pose = sampled_pose;
     Eigen::Vector3d velocity = Eigen::Vector3d::Zero();
 
-	double dt = (cur_topic.imu_data.timestamp / 1e9) - last_timestamp;
+	double dt = (cur_topic.imu_data.timestamp - last_timestamp);
+	// std::cout << "dt: "<< dt << std::endl;
     // last_timestamp = cur_topic.imu_data.timestamp / 1e9;
     
     // Vector3d velocity = Vector3d::Zero();
@@ -224,21 +263,24 @@ inline Pose dead_reckoning_IMUData(topic_s& cur_topic, const Pose& initial_pose,
 	              omega.z(), 0, -omega.x(),
 	              -omega.y(), omega.x(), 0;
 	Eigen::Matrix3d delta_orientation = Eigen::Matrix3d::Identity() + omega_skew;
-
+	// std::cout << "==========" << std::endl;
+	// std::cout << delta_orientation << std::endl;
+	// std::cout << "==========" << std::endl;
 
 	pose.orientation = pose.orientation * delta_orientation;
 
 	// Normalize the rotation matrix to avoid drift
 	pose.orientation.normalize();
 
-	// std::cout << "======start=======" << std::endl;
-	// std::cout << pose.orientation << std::endl;
-	// std::cout << "=======end======" << std::endl;
 
 	// Update position using accelerometer data
-	Eigen::Vector3d accel_world = pose.orientation * cur_topic.imu_data.accel*100; // Transform accel to world frame
+
+	Eigen::Vector3d accel_world = pose.orientation * cur_topic.imu_data.accel; // Transform accel to world frame
 	velocity += accel_world * dt;
 
+	// std::cout << "======start=======" << std::endl;
+	// std::cout << "accel_world: " << accel_world << std::endl;
+	// std::cout << "=======end======" << std::endl;
 	// std::cout << "======start=======" << std::endl;
 	// std::cout << pose.position << std::endl;
 	pose.position += velocity * dt;
@@ -250,6 +292,16 @@ inline Pose dead_reckoning_IMUData(topic_s& cur_topic, const Pose& initial_pose,
 	
 
     return pose;
+}
+
+// Function to convert Euler angles (roll, pitch, yaw) to a quaternion
+inline Eigen::Quaterniond eulerToQuaternion(double roll, double pitch, double yaw) {
+    Eigen::AngleAxisd rollAngle(roll, Eigen::Vector3d::UnitX());
+    Eigen::AngleAxisd pitchAngle(pitch, Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd yawAngle(yaw, Eigen::Vector3d::UnitZ());
+
+    Eigen::Quaterniond q = yawAngle * pitchAngle * rollAngle;
+    return q;
 }
 
 inline void Plot(std::vector<double> x_points, std::vector<double> y_points, std::vector<double> z_points, std::vector<double> MinMax) {
@@ -292,9 +344,68 @@ inline void Plot(std::vector<double> x_points, std::vector<double> y_points, std
 	matplotlibcpp::show();
 	// matplotlibcpp::zlabel("Y position");
 	// matplotlibcpp::save("test.png");
-	
-
 }
+
+
+
+// inline void plotData(const std::vector<std::vector<double>>& uwb_x_data,
+//                      const std::vector<std::vector<double>>& uwb_y_data,
+//                      const std::vector<std::vector<double>>& uwb_z_data,
+//                      const std::vector<std::vector<double>>& pf_x_data,
+//                      const std::vector<std::vector<double>>& pf_y_data,
+//                      const std::vector<std::vector<double>>& pf_z_data) {
+//     matplotlibcpp::ion();  // Turn on interactive mode
+//     matplotlibcpp::clf();  // Clear the previous plot
+
+//     // Access the current figure
+//     PyObject* fig = PyObject_CallObject(matplotlibcpp::detail::_interpreter::get().s_python_function_figure, matplotlibcpp::detail::_interpreter::get().s_python_empty_tuple);
+//     if (!fig) throw std::runtime_error("Call to figure() failed.");
+
+//     // Ensure 3D projection is set up correctly
+//     PyObject* gca = PyObject_CallMethod(fig, "add_subplot", "(iii)", 1, 1, 1);
+//     if (!gca) throw std::runtime_error("Call to add_subplot() failed.");
+
+//     PyObject* set_proj = PyObject_CallMethod(gca, "set", "(O)", Py_BuildValue("{s:s}", "projection", "3d"));
+//     if (!set_proj) throw std::runtime_error("Failed to set 3D projection.");
+
+//     // Plot UWB data
+//     if (!uwb_x_data.empty() && !uwb_y_data.empty() && !uwb_z_data.empty()) {
+//         matplotlibcpp::plot_surface(uwb_x_data, uwb_y_data, uwb_z_data, {{"color", "blue"}});
+//     }
+
+//     // Plot PF data
+//     if (!pf_x_data.empty() && !pf_y_data.empty() && !pf_z_data.empty()) {
+//         matplotlibcpp::plot_surface(pf_x_data, pf_y_data, pf_z_data, {{"color", "red"}});
+//     }
+
+//     matplotlibcpp::xlabel("X");
+//     matplotlibcpp::ylabel("Y");
+
+//     // Set the Z label
+//     PyObject* zlabel = PyUnicode_FromString("Z");
+//     PyObject* set_zlabel = PyObject_GetAttrString(gca, "set_zlabel");
+//     if (set_zlabel && PyCallable_Check(set_zlabel)) {
+//         PyObject_CallFunctionObjArgs(set_zlabel, zlabel, nullptr);
+//         Py_DECREF(set_zlabel);
+//     } else {
+//         throw std::runtime_error("Failed to set zlabel.");
+//     }
+
+//     // Set title and legend
+//     matplotlibcpp::title("Real-Time 3D Plot");
+//     matplotlibcpp::legend();
+//     matplotlibcpp::pause(0.1);
+
+//     // Clean up
+//     Py_DECREF(gca);
+//     Py_DECREF(zlabel);
+//     Py_DECREF(fig);
+// }
+
+
+
+
+
 
 // inline vector<vector<double>> test_kinematics(const Pose& initial_pose) {
 
@@ -417,9 +528,10 @@ inline bool read_map_data(std::string filename, Map& map) {
 inline bool read_anchor_data(std::string filename, Anchor& anchor) {
 
 	// Get file of anchor:
-	std::ifstream in_file_map(filename.c_str(),std::ifstream::in);
+	std::ifstream in_file_anchor(filename.c_str(),std::ifstream::in);
 	// Return if we can't open the file.
-	if (!in_file_map) {
+	if (!in_file_anchor) {
+		std::cout << filename << std::endl;
 		return false;
 	}
 	
@@ -427,12 +539,12 @@ inline bool read_anchor_data(std::string filename, Anchor& anchor) {
 	std::string line_anchor;
 
 	// Run over each single line:
-	while(getline(in_file_map, line_anchor)){
+	while(getline(in_file_anchor, line_anchor)){
 
 		std::istringstream iss_anchor(line_anchor);
 
 		// Declare anchor position and ID:
-		float x, y, z;
+		double x, y, z;
 		int id_i;
 
 		// Read data from current line to values::

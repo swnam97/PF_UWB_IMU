@@ -58,7 +58,7 @@ class Plotter:
         self.pub_gt = rospy.Publisher('/gt_path', Path, queue_size=10)
         # print("test 4")
         # self.pub_1 = rospy.Publisher('/uwb', Path, queue_size=10)
-        self.pub_2 = rospy.Publisher('/pf', Path, queue_size=10)
+        self.pub_2 = rospy.Publisher('/pf', Path, queue_size=10) 
         # print("test 5")
         # self.pub_3 = rospy.Publisher('/esekf', Path, queue_size=10)
         self.read_gt_file()
@@ -127,7 +127,7 @@ class Plotter:
                 # print("a value: ", a)
                 self.gt_x.append(a*0.001+4.55)
                 self.gt_y.append(b*0.001+4)
-                self.gt_z.append(c*0.001)
+                self.gt_z.append(c*0.001-0.2)
                 rot = np.array([[d,e,f],
                                 [g,h,i],
                                 [j,k,l]]) 
