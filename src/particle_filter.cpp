@@ -162,78 +162,72 @@ void ParticleFilter::prediction(double delta_t, double std_position[], double st
 
 
 void ParticleFilter::updateWeights_uwb_online(double uwb_range, double std_distance, 
-            UWBdata uwb_data, Anchor anchors) {
-	// Update the weights of each particle using a multi-variate Gaussian distribution. You can read
-	//   more about this distribution here: https://en.wikipedia.org/wiki/Multivariate_normal_distribution
-	// NOTE: The observations are given in the VEHICLE'S coordinate system. Your particles are located
-	//   according to the MAP'S coordinate system. You will need to transform between the two systems.
-	//   Keep in mind that this transformation requires both rotation AND translation (but no scaling).
-	//   The following is a good resource for the theory:
-	//   https://www.willamette.edu/~gorr/classes/GeneralGraphics/Transforms/transforms2d.htm
-	//   and the following is a good resource for the actual equation to implement (look at equation 
-	//   3.33. Note that you'll need to switch the minus sign in that equation to a plus to account 
-	//   for the fact that the map's y-axis actually points downwards.)
-	//   http://planning.cs.uiuc.edu/node99.html
-
-    double std_d = std_distance;
-    
+            UWBdata uwb_data, Anchor anchors, double estimated_yaw) {
 
     double weights_sum = 0;
+    const double lambda_r = 1.0;  // Parameter for residual likelihood
+    const double lambda_y = 0.005;  // Parameter for yaw likelihood
+    const double epsilon = 1e-6;  // Small constant to prevent division by zero
 
-    for(int i=0; i<num_particles; ++i){
-        Particle *p = &particles[i];
-        // double wt = 1.0;    
+    for (int i = 0; i < num_particles; ++i) {
+        Particle* p = &particles[i];
 
-        // cout << "UWB callback 3" << endl;
-        // convert observation from vehicle's to map's coordinate system
-        //// I think I don't need this process
-        for(int j=0; j<uwb_data.distances.size(); ++j){
-            Eigen::VectorXd current_obs = uwb_data.distances;
-            Anchor::single_anchor_s anchor;
-            double distance_min = std::numeric_limits<double>::max();
-            std::vector<double> distance_list;
+        p->weight = 1.0;  // Reset weight
 
-            for(int k=0; k<anchors.anchor_list.size(); ++k){
-                // Map::single_landmark_s cur_l = map_landmarks.landmark_list[k];
-                Anchor::single_anchor_s anchor_location = anchors.anchor_list[k];
+        std::vector<double> measured_distances;
+        std::vector<double> predicted_distances;
+
+        for (int j = 0; j < uwb_data.distances.size(); ++j) {
+            if (uwb_data.distances[j] != 0.0) {
+                Anchor::single_anchor_s anchor_location = anchors.anchor_list[j];
                 double anchor_x = anchor_location.x;
                 double anchor_y = anchor_location.y;
                 double anchor_z = anchor_location.z;
-                distance_list.push_back(dist_xyz(p->x, p->y, p->z, anchor_x, anchor_y, anchor_z));
+
+                double measured_distance = uwb_data.distances[j];
+                double predicted_distance = dist_xyz(p->x, p->y, p->z, anchor_x, anchor_y, anchor_z);
+
+                measured_distances.push_back(measured_distance);
+                predicted_distances.push_back(predicted_distance);
             }
-
-            double pred_d1 = distance_list[0];
-            double pred_d2 = distance_list[1];
-            double pred_d3 = distance_list[2];
-            double pred_d4 = distance_list[3];
-            double pred_d5 = distance_list[4];
-            double pred_d6 = distance_list[5];
-            double pred_d7 = distance_list[6];
-            double pred_d8 = distance_list[7];
-
-            double measured_d1 = current_obs[0];
-            double measured_d2 = current_obs[1];
-            double measured_d3 = current_obs[2];
-            double measured_d4 = current_obs[3];
-            double measured_d5 = current_obs[4];
-            double measured_d6 = current_obs[5];
-            double measured_d7 = current_obs[6];
-            double measured_d8 = current_obs[7];
-
-            double residual = residual_distance(pred_d1, pred_d2, pred_d3, pred_d4, pred_d5, measured_d1, measured_d2, measured_d3, measured_d4, measured_d5);
-
-            // Ensure residual is not too small to prevent division by zero or very small values
-            const double epsilon = 1e-6; // Small constant value to prevent infinity
-            residual = std::max(residual, epsilon);
-            // wt *= 1/residual;
-            p->weight *= 1/residual;
-            
         }
-        // weights_sum += wt;
+
+        // Calculate residual likelihood
+        double residual = 0.0;
+        if (!measured_distances.empty()) {
+            for (size_t k = 0; k < measured_distances.size(); ++k) {
+                residual += std::pow(predicted_distances[k] - measured_distances[k], 2);
+            }
+            residual = std::sqrt(residual / measured_distances.size());
+            residual = std::max(residual, epsilon);  // Prevent division by zero or very small values
+
+            double residual_likelihood = exp(-lambda_r * residual);
+            p->weight *= residual_likelihood;
+        }
+        // cout << "residual: " << residual << endl;
+
+        // Calculate yaw likelihood using cosine and sine similarity
+        double cos_yaw_diff = std::cos(p->yaw - estimated_yaw);
+        double sin_yaw_diff = std::sin(p->yaw - estimated_yaw);
+
+        // Map cosine similarity to a likelihood (range [0, 1])
+        double yaw_likelihood_cos = (cos_yaw_diff + 1) / 2; // Map from [-1, 1] to [0, 1]
+        
+        // Use absolute value of sine difference for likelihood
+        double yaw_likelihood_sin = 1 - std::abs(sin_yaw_diff); // Closer to 1 when sin_yaw_diff is close to 0
+
+        // yaw_likelihood = exp(-lambda_y * (1 - yaw_likelihood)); // Weighting function
+        double yaw_likelihood = exp(-lambda_y * (2 - (yaw_likelihood_cos + yaw_likelihood_sin))); // Weighting function
+
+        p->weight *= 1;
+        // p->weight *= yaw_likelihood;
+
         weights_sum += p->weight;
-        // p->weight = wt;
+        // cout << "weight: " << p->weight << endl;
+        // cout << "yaw_residual: " << yaw_residual << endl;
     }
-    // normalize weights to bring them in (0, 1]
+
+    // Normalize weights to bring them in (0, 1]
     for (int i = 0; i < num_particles; i++) {
         Particle *p = &particles[i];
         p->weight /= weights_sum;
@@ -241,7 +235,86 @@ void ParticleFilter::updateWeights_uwb_online(double uwb_range, double std_dista
     }
 }
 
+// void ParticleFilter::updateWeights_uwb_online(double uwb_range, double std_distance, 
+//             UWBdata uwb_data, Anchor anchors) {
+// 	// Update the weights of each particle using a multi-variate Gaussian distribution. You can read
+// 	//   more about this distribution here: https://en.wikipedia.org/wiki/Multivariate_normal_distribution
+// 	// NOTE: The observations are given in the VEHICLE'S coordinate system. Your particles are located
+// 	//   according to the MAP'S coordinate system. You will need to transform between the two systems.
+// 	//   Keep in mind that this transformation requires both rotation AND translation (but no scaling).
+// 	//   The following is a good resource for the theory:
+// 	//   https://www.willamette.edu/~gorr/classes/GeneralGraphics/Transforms/transforms2d.htm
+// 	//   and the following is a good resource for the actual equation to implement (look at equation 
+// 	//   3.33. Note that you'll need to switch the minus sign in that equation to a plus to account 
+// 	//   for the fact that the map's y-axis actually points downwards.)
+// 	//   http://planning.cs.uiuc.edu/node99.html
 
+//     double std_d = std_distance;
+    
+
+//     double weights_sum = 0;
+
+//     for(int i=0; i<num_particles; ++i){
+//         Particle *p = &particles[i];
+//         // double wt = 1.0;    
+
+//         // cout << "UWB callback 3" << endl;
+//         // convert observation from vehicle's to map's coordinate system
+//         //// I think I don't need this process
+//         for(int j=0; j<uwb_data.distances.size(); ++j){
+//             Eigen::VectorXd current_obs = uwb_data.distances;
+//             Anchor::single_anchor_s anchor;
+//             std::vector<double> distance_list;
+
+//             for(int k=0; k<anchors.anchor_list.size(); ++k){
+//                 // Map::single_landmark_s cur_l = map_landmarks.landmark_list[k];
+//                 Anchor::single_anchor_s anchor_location = anchors.anchor_list[k];
+//                 double anchor_x = anchor_location.x;
+//                 double anchor_y = anchor_location.y;
+//                 double anchor_z = anchor_location.z;
+//                 distance_list.push_back(dist_xyz(p->x, p->y, p->z, anchor_x, anchor_y, anchor_z));
+//             }
+
+//             double pred_d1 = distance_list[0];
+//             double pred_d2 = distance_list[1];
+//             double pred_d3 = distance_list[2];
+//             double pred_d4 = distance_list[3];
+//             double pred_d5 = distance_list[4];
+//             double pred_d6 = distance_list[5];
+//             double pred_d7 = distance_list[6];
+//             double pred_d8 = distance_list[7];
+
+//             double measured_d1 = current_obs[0];
+//             double measured_d2 = current_obs[1];
+//             double measured_d3 = current_obs[2];
+//             double measured_d4 = current_obs[3];
+//             double measured_d5 = current_obs[4];
+//             double measured_d6 = current_obs[5];
+//             double measured_d7 = current_obs[6];
+//             double measured_d8 = current_obs[7];
+
+//             double residual = residual_distance(pred_d1, pred_d2, pred_d3, pred_d4, pred_d5, measured_d1, measured_d2, measured_d3, measured_d4, measured_d5);
+
+//             // Ensure residual is not too small to prevent division by zero or very small values
+//             const double epsilon = 1e-6; // Small constant value to prevent infinity
+//             residual = std::max(residual, epsilon);
+//             // wt *= 1/residual;
+//             p->weight *= 1/residual;
+            
+//         }
+//         // weights_sum += wt;
+//         weights_sum += p->weight;
+//         // p->weight = wt;
+//     }
+//     // normalize weights to bring them in (0, 1]
+//     for (int i = 0; i < num_particles; i++) {
+//         Particle *p = &particles[i];
+//         p->weight /= weights_sum;
+//         weights[i] = p->weight;
+//     }
+// }
+
+/////////// Loosely-coupled ////////////////
 // void ParticleFilter::updateWeights_uwb_online(double uwb_range, double std_distance, 
 //             UWBdata uwb_data, Anchor anchors) {
 // 	// Update the weights of each particle using a multi-variate Gaussian distribution. You can read
@@ -307,7 +380,7 @@ void ParticleFilter::resample() {
     // double std_position[] = {0.25, 0.25, 0.25};
     // double std_orient[] = {M_PI/6, M_PI/6, M_PI/6};
     double std_position[] = {0.1, 0.1, 0.1};
-    double std_orient[] = {M_PI/36, M_PI/36, M_PI/36};
+    double std_orient[] = {M_PI/18, M_PI/18, M_PI/18};
 
 
 
@@ -405,54 +478,83 @@ void ParticleFilter::resample() {
 // 	}
 // 	dataFile.close();
 // }
-Pose ParticleFilter::get_best_estimate() const {
+// Pose ParticleFilter::get_best_estimate() const {
 
+//     vector<Particle> particles_ = particles;
+//     int num_particles = particles_.size();
+//     Particle best_particle;
+
+//     double estimated_x = 0;
+//     double estimated_y = 0;
+//     double estimated_z = 0;
+
+//     vector<Eigen::Matrix3d> rotations;
+//     vector<double> weights;
+//     double sum_weights = 0;
+
+//     for (const auto& particle : particles_) {
+//         sum_weights += particle.weight;
+
+//         estimated_x += particle.weight * particle.x; 
+//         estimated_y += particle.weight * particle.y; 
+//         estimated_z += particle.weight * particle.z; 
+
+//         rotations.push_back(particle.R);
+//         weights.push_back(particle.weight);
+//     }
+
+//     Eigen::Matrix3d meanRotation = calculateWeightedMeanRotation(rotations, weights);
+
+//     best_particle.x = estimated_x / sum_weights;
+//     best_particle.y = estimated_y / sum_weights;
+//     best_particle.z = estimated_z / sum_weights;
+//     best_particle.R = meanRotation; 
+
+//     Pose estimated_pose;
+//     estimated_pose.position = Eigen::Vector3d(best_particle.x, best_particle.y, best_particle.z);
+//     estimated_pose.orientation = best_particle.R;
+
+//     return estimated_pose;
+// }
+
+
+Pose ParticleFilter::get_best_estimate() {
     vector<Particle> particles_ = particles;
     int num_particles = particles_.size();
-    Particle best_particle;
 
-    double estimated_x = 0;
-    double estimated_y = 0;
-    double estimated_z = 0;
-
-    double sum_sin_roll = 0;
-    double sum_cos_roll = 0;
-    double sum_sin_pitch = 0;
-    double sum_cos_pitch = 0;
-    double sum_sin_yaw = 0;
-    double sum_cos_yaw = 0;
-
-    double sum_weights = 0;
+    double sum_weights = 0.0;
+    Eigen::Vector3d estimated_position = Eigen::Vector3d::Zero();
+    std::vector<Eigen::Matrix3d> rotations;
+    std::vector<double> weights;
 
     for (const auto& particle : particles_) {
         sum_weights += particle.weight;
-
-        estimated_x += particle.weight * particle.x; 
-        estimated_y += particle.weight * particle.y; 
-        estimated_z += particle.weight * particle.z; 
-        
-        sum_sin_roll += particle.weight * sin(rotationMatrixToEuler(particle.R)[0]);
-        sum_cos_roll += particle.weight * cos(rotationMatrixToEuler(particle.R)[0]);
-        
-        sum_sin_pitch += particle.weight * sin(rotationMatrixToEuler(particle.R)[1]);
-        sum_cos_pitch += particle.weight * cos(rotationMatrixToEuler(particle.R)[1]);
-        
-        sum_sin_yaw += particle.weight * sin(rotationMatrixToEuler(particle.R)[2]);
-        sum_cos_yaw += particle.weight * cos(rotationMatrixToEuler(particle.R)[2]);
+        estimated_position += particle.weight * Eigen::Vector3d(particle.x, particle.y, particle.z);
+        rotations.push_back(particle.R);
+        weights.push_back(particle.weight);
+        // cout << "each yaw: " << particle.yaw << endl;
     }
 
-    best_particle.x = estimated_x / sum_weights;
-    best_particle.y = estimated_y / sum_weights;
-    best_particle.z = estimated_z / sum_weights;
+    if (sum_weights == 0) {
+        // Handle the case where all weights are zero to avoid division by zero
+        std::cerr << "Sum of weights is zero, which may indicate an issue with the weight calculation." << std::endl;
+        return Pose();
+    }
 
-    best_particle.roll = atan2(sum_sin_roll, sum_cos_roll);
-    best_particle.pitch = atan2(sum_sin_pitch, sum_cos_pitch);
-    best_particle.yaw = atan2(sum_sin_yaw, sum_cos_yaw);
-    best_particle.R = rotationMatrixFromEuler(best_particle.roll, best_particle.pitch, best_particle.yaw); 
+    estimated_position /= sum_weights;
+
+    // Normalize weights
+    for (auto& weight : weights) {
+        weight /= sum_weights;
+    }
+
+    Eigen::Matrix3d meanRotation = calculateWeightedMeanRotation(rotations, weights);
+    estimated_yaw = rotationMatrixToEuler(meanRotation)[2];
+    // cout << "estimated_yaw: " << estimated_yaw << endl;
 
     Pose estimated_pose;
-    estimated_pose.position = Eigen::Vector3d(best_particle.x, best_particle.y, best_particle.z);
-    estimated_pose.orientation = best_particle.R;
+    estimated_pose.position = estimated_position;
+    estimated_pose.orientation = meanRotation;
 
     return estimated_pose;
 }

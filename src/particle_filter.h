@@ -44,6 +44,7 @@ public:
 	Anchor anchor;
 	float minX, maxX, minY, maxY, minZ, maxZ;
 	double residual;
+	double estimated_yaw;
 
 	// Set of current particles
 	std::vector<Particle> particles;
@@ -110,7 +111,7 @@ public:
 	/// @param anchors 
 	
 	void updateWeights_uwb_online(double uwb_range, double std_distance, 
-            UWBdata uwb_data, Anchor anchors);
+            UWBdata uwb_data, Anchor anchors, double estimated_yaw);
 
 
 	/**
@@ -120,7 +121,7 @@ public:
 	void resample();
 	
 
-	Pose get_best_estimate() const;
+	Pose get_best_estimate();
 
 
 	/*

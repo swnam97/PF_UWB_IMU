@@ -43,7 +43,7 @@ double sigma_position[3] = {0.1, 0.1, 0.1}; // Position uncertainty [x [m], y [m
 double sigma_orient[3] = {M_PI/36, M_PI/36, M_PI/36}; // Orientation uncertainty [x [rad], y [rad], z [rad]]
 // double sigma_position[3] = {0.1, 0.1, 0.1}; // Position uncertainty [x [m], y [m], z [m]]
 // double sigma_orient[3] = {M_PI/12, M_PI/12, M_PI/12}; // Orientation uncertainty [x [rad], y [rad], z [rad]]
-double sigma_distance = 0.05; // Range measurement uncertainty [m]
+double sigma_distance = 0.15; // Range measurement uncertainty [m]
 
 // vector<double> uwb_x, uwb_y, uwb_z;
 // vector<double> pf_x, pf_y, pf_z;
@@ -206,6 +206,7 @@ void uwbCallback(const nlink_parser::LinktrackTagframe0::ConstPtr& msg, ros::Pub
     if (!initialized) return;
 
     double uwb_timestamp = msg->system_time / 1000.0; // Assuming system_time is in milliseconds
+    double sum_of_squares = 0.0;
 
     topic_s cur_topic;
     cur_topic.uwb_data.timestamp = uwb_timestamp;
@@ -225,7 +226,7 @@ void uwbCallback(const nlink_parser::LinktrackTagframe0::ConstPtr& msg, ros::Pub
     last_timestamp_uwb = cur_topic.uwb_data.timestamp;
 
     if (pf.initialized()) {
-        pf.updateWeights_uwb_online(uwb_range, sigma_distance, cur_topic.uwb_data, pf.anchor);
+        pf.updateWeights_uwb_online(uwb_range, sigma_distance, cur_topic.uwb_data, pf.anchor, pf.estimated_yaw);
         pf.resample();
         imu_received = false;
         imu_twice = false;
@@ -234,18 +235,25 @@ void uwbCallback(const nlink_parser::LinktrackTagframe0::ConstPtr& msg, ros::Pub
     Pose estimated_pose = pf.get_best_estimate();
     ROS_INFO("Best estimate: x: %f, y: %f, z: %f", estimated_pose.position.x(), estimated_pose.position.y(), estimated_pose.position.z());
 
-    static std::deque<Pose> pose_history;
+    for (double weight : pf.weights) {
+            sum_of_squares += weight * weight;
+        }
 
-    if (pose_history.size() >= 3) {
-        pose_history.pop_front();
-    }
-    pose_history.push_back(estimated_pose);
+        double N_eff = 1 / sum_of_squares;
+        // cout << "N_eff: " << N_eff << endl;
 
-    Eigen::Vector3d avg_position(0, 0, 0);
-    for (const auto& pose : pose_history) {
-        avg_position += pose.position;
-    }
-    avg_position /= pose_history.size();
+    // static std::deque<Pose> pose_history;
+
+    // if (pose_history.size() >= 3) {
+    //     pose_history.pop_front();
+    // }
+    // pose_history.push_back(estimated_pose);
+
+    // Eigen::Vector3d avg_position(0, 0, 0);
+    // for (const auto& pose : pose_history) {
+    //     avg_position += pose.position;
+    // }
+    // avg_position /= pose_history.size();
 
     nav_msgs::Path estimated_path;
     geometry_msgs::PoseStamped pose_;
@@ -253,9 +261,13 @@ void uwbCallback(const nlink_parser::LinktrackTagframe0::ConstPtr& msg, ros::Pub
     pose_.header.frame_id = "estimated_frame";
     pose_.header.stamp = ros::Time::now();
 
-    pose_.pose.position.x = avg_position.x();
-    pose_.pose.position.y = avg_position.y();
-    pose_.pose.position.z = avg_position.z();
+
+    pose_.pose.position.x = estimated_pose.position.x();
+    pose_.pose.position.y = estimated_pose.position.y();
+    pose_.pose.position.z = estimated_pose.position.z();
+    // pose_.pose.position.x = avg_position.x();
+    // pose_.pose.position.y = avg_position.y();
+    // pose_.pose.position.z = avg_position.z();
 
     Eigen::Quaterniond q = rotationMatrixToQuaternion(estimated_pose.orientation);
     pose_.pose.orientation.x = q.x();
@@ -316,7 +328,8 @@ int main(int argc, char** argv) {
     pf.init();
 
 
-    ros::Publisher estimated_path_pub = nh.advertise<nav_msgs::Path>("/estimated_path", 1000);
+    // ros::Publisher estimated_path_pub = nh.advertise<nav_msgs::Path>("/estimated_path", 1000);
+    ros::Publisher estimated_path_pub = nh.advertise<nav_msgs::Path>("/pf", 1000);
     ros::Publisher uwb_path_pub = nh.advertise<nav_msgs::Path>("/uwb_path", 1000);
 
     ros::Subscriber sub_imu = nh.subscribe<sensor_msgs::Imu>("/imu/data", 1000, imuCallback);

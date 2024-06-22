@@ -234,6 +234,53 @@ inline Eigen::Quaterniond rotationMatrixToQuaternion(const Eigen::Matrix3d& R) {
 }
 
 
+// inline Pose dead_reckoning_IMUData(topic_s& cur_topic, const Pose& sampled_pose, double& last_timestamp) {
+
+// 	// std::cout << sampled_pose.position << std::endl;
+
+//     Pose pose = sampled_pose;
+//     Eigen::Vector3d velocity = Eigen::Vector3d::Zero();
+
+// 	double dt = (cur_topic.imu_data.timestamp - last_timestamp);
+	
+// 	// std::cout << "dt: "<< dt << std::endl;
+    
+// 	Eigen::Vector3d omega = cur_topic.imu_data.gyro * dt;
+// 	Eigen::Matrix3d omega_skew;
+// 	omega_skew << 0, -omega.z(), omega.y(),
+// 	              omega.z(), 0, -omega.x(),
+// 	              -omega.y(), omega.x(), 0;
+// 	Eigen::Matrix3d delta_orientation = Eigen::Matrix3d::Identity() + omega_skew;
+// 	// std::cout << "==========" << std::endl;
+// 	// std::cout << delta_orientation << std::endl;
+// 	// std::cout << "==========" << std::endl;
+
+
+// 	// Normalize the rotation matrix to avoid drift
+// 	pose.orientation.normalize();
+
+
+// 	// Update position using accelerometer data
+
+// 	Eigen::Vector3d accel_world = pose.orientation * cur_topic.imu_data.accel; // Transform accel to world frame
+// 	velocity += accel_world * dt;
+
+// 	// std::cout << "======start=======" << std::endl;
+// 	// std::cout << "accel_world: " << accel_world << std::endl;
+// 	// std::cout << "=======end======" << std::endl;
+// 	// std::cout << "======start=======" << std::endl;
+// 	// std::cout << pose.position << std::endl;
+// 	pose.position += velocity * dt;
+// 	// std::cout << "\n" << std::endl;
+//     // }
+
+// 	// std::cout << pose.position << std::endl;
+// 	// std::cout << "=======end======" << std::endl;
+	
+
+//     return pose;
+// }
+
 inline Pose dead_reckoning_IMUData(topic_s& cur_topic, const Pose& sampled_pose, double& last_timestamp) {
 
 	// std::cout << sampled_pose.position << std::endl;
@@ -242,53 +289,24 @@ inline Pose dead_reckoning_IMUData(topic_s& cur_topic, const Pose& sampled_pose,
     Eigen::Vector3d velocity = Eigen::Vector3d::Zero();
 
 	double dt = (cur_topic.imu_data.timestamp - last_timestamp);
-	// std::cout << "dt: "<< dt << std::endl;
-    // last_timestamp = cur_topic.imu_data.timestamp / 1e9;
-    
-    // Vector3d velocity = Vector3d::Zero();
-    // double last_timestamp = imu_data[0].timestamp;
 
-    // for (const auto& data : cur_topic) {
-	// std::cout << cur_topic.imu_data.accel[0] << std::endl;
-	// last_timestamp = cur_topic.imu_data.timestamp;
+	// Convert rotation matrix to quaternion
+    Eigen::Quaterniond orientation_quat = rotationMatrixToQuaternion(pose.orientation);
 
-	// Update orientation using gyroscope data
-	// cur_topic.imu_data.accel[2] += 9.81;
-	// std::cout << cur_topic.imu_data.accel.z() << std::endl;
 	Eigen::Vector3d omega = cur_topic.imu_data.gyro * dt;
-	// std::cout << cur_topic.imu_data.gyro[0] << std::endl;
-	// Eigen::Quaterniond delta_orientation(Eigen::AngleAxisd(omega.norm(), omega.normalized()));
-	Eigen::Matrix3d omega_skew;
-	omega_skew << 0, -omega.z(), omega.y(),
-	              omega.z(), 0, -omega.x(),
-	              -omega.y(), omega.x(), 0;
-	Eigen::Matrix3d delta_orientation = Eigen::Matrix3d::Identity() + omega_skew;
-	// std::cout << "==========" << std::endl;
-	// std::cout << delta_orientation << std::endl;
-	// std::cout << "==========" << std::endl;
+	Eigen::Quaterniond delta_orientation(1, 0.5 * omega.x(), 0.5 * omega.y(), 0.5 * omega.z());
+    delta_orientation.normalize();  // Ensure the quaternion is normalized
 
-	pose.orientation = pose.orientation * delta_orientation;
+	orientation_quat = orientation_quat * delta_orientation;
+    orientation_quat.normalize();
 
-	// Normalize the rotation matrix to avoid drift
-	pose.orientation.normalize();
-
+	// Convert quaternion back to rotation matrix
+    pose.orientation = orientation_quat.toRotationMatrix();
 
 	// Update position using accelerometer data
-
-	Eigen::Vector3d accel_world = pose.orientation * cur_topic.imu_data.accel; // Transform accel to world frame
-	velocity += accel_world * dt;
-
-	// std::cout << "======start=======" << std::endl;
-	// std::cout << "accel_world: " << accel_world << std::endl;
-	// std::cout << "=======end======" << std::endl;
-	// std::cout << "======start=======" << std::endl;
-	// std::cout << pose.position << std::endl;
-	pose.position += velocity * dt;
-	// std::cout << "\n" << std::endl;
-    // }
-
-	// std::cout << pose.position << std::endl;
-	// std::cout << "=======end======" << std::endl;
+    Eigen::Vector3d accel_world = pose.orientation * cur_topic.imu_data.accel;  // Transform accel to world frame
+    velocity += accel_world * dt;
+    pose.position += velocity * dt;
 	
 
     return pose;
@@ -304,167 +322,24 @@ inline Eigen::Quaterniond eulerToQuaternion(double roll, double pitch, double ya
     return q;
 }
 
-inline void Plot(std::vector<double> x_points, std::vector<double> y_points, std::vector<double> z_points, std::vector<double> MinMax) {
-
-	const long fg = matplotlibcpp::figure(); // Define the figure handle number here
-
-	// Plot the best particle's X, Y, Z trajectory in 3D
-	std::map<std::string, std::string> kwargs;
-	kwargs["marker"] = "o";
-	kwargs["linestyle"] = "-";
-	kwargs["linewidth"] = "1";
-	kwargs["markersize"] = "3";
-	
-	// Plot the current data using scatter
-	// matplotlibcpp::figure_size(800, 600);
-	// // plt::plotting::Axes3d ax = plt::plotting::Axes3d();
-	// // Clear the previous plot
-	matplotlibcpp::clf();
-	// matplotlibcpp::scatter(x_points, y_points, z_points, 3); // 10 is the marker size
-	// // Draw the plot
-	// matplotlibcpp::draw();
-	// matplotlibcpp::pause(0.01); // Pause for a short period to create an animation effect
-
-	// plt::scatter3(x_points, y_points, z_points, 3.0, kwargs); // 10 is the marker size
-
-
-
-
-	matplotlibcpp::plot3(x_points, y_points, z_points, kwargs, fg);
-	matplotlibcpp::xlim(MinMax[0], MinMax[1]);
-	matplotlibcpp::ylim(MinMax[2], MinMax[3]);
-	// matplotlibcpp::zlim(MinMax[4], MinMax[5]);
-
-	matplotlibcpp::draw();
-	// matplotlibcpp::pause(1);
-	matplotlibcpp::pause(0.01);
-	matplotlibcpp::title("Initialized Particles in 3D");
-	matplotlibcpp::xlabel("X position");
-	matplotlibcpp::ylabel("Y position");
-	matplotlibcpp::show();
-	// matplotlibcpp::zlabel("Y position");
-	// matplotlibcpp::save("test.png");
+// Function to calculate the Gaussian probability
+inline double gaussianProbability(double mu, double sigma, double x) {
+    return (1.0 / (sigma * sqrt(2.0 * M_PI))) * exp(-0.5 * pow((x - mu) / sigma, 2));
 }
 
+inline Eigen::Matrix3d calculateWeightedMeanRotation(const std::vector<Eigen::Matrix3d>& rotations, const std::vector<double>& weights) {
+    // Initialize the matrix to hold the weighted sum
+    Eigen::Matrix3d weightedSum = Eigen::Matrix3d::Zero();
+    for (size_t i = 0; i < rotations.size(); ++i) {
+        weightedSum += weights[i] * rotations[i];
+    }
+    // Perform polar decomposition to find the closest rotation matrix
+    Eigen::JacobiSVD<Eigen::Matrix3d> svd(weightedSum, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Eigen::Matrix3d meanRotation = svd.matrixU() * svd.matrixV().transpose();
+    return meanRotation;
+}
 
-
-// inline void plotData(const std::vector<std::vector<double>>& uwb_x_data,
-//                      const std::vector<std::vector<double>>& uwb_y_data,
-//                      const std::vector<std::vector<double>>& uwb_z_data,
-//                      const std::vector<std::vector<double>>& pf_x_data,
-//                      const std::vector<std::vector<double>>& pf_y_data,
-//                      const std::vector<std::vector<double>>& pf_z_data) {
-//     matplotlibcpp::ion();  // Turn on interactive mode
-//     matplotlibcpp::clf();  // Clear the previous plot
-
-//     // Access the current figure
-//     PyObject* fig = PyObject_CallObject(matplotlibcpp::detail::_interpreter::get().s_python_function_figure, matplotlibcpp::detail::_interpreter::get().s_python_empty_tuple);
-//     if (!fig) throw std::runtime_error("Call to figure() failed.");
-
-//     // Ensure 3D projection is set up correctly
-//     PyObject* gca = PyObject_CallMethod(fig, "add_subplot", "(iii)", 1, 1, 1);
-//     if (!gca) throw std::runtime_error("Call to add_subplot() failed.");
-
-//     PyObject* set_proj = PyObject_CallMethod(gca, "set", "(O)", Py_BuildValue("{s:s}", "projection", "3d"));
-//     if (!set_proj) throw std::runtime_error("Failed to set 3D projection.");
-
-//     // Plot UWB data
-//     if (!uwb_x_data.empty() && !uwb_y_data.empty() && !uwb_z_data.empty()) {
-//         matplotlibcpp::plot_surface(uwb_x_data, uwb_y_data, uwb_z_data, {{"color", "blue"}});
-//     }
-
-//     // Plot PF data
-//     if (!pf_x_data.empty() && !pf_y_data.empty() && !pf_z_data.empty()) {
-//         matplotlibcpp::plot_surface(pf_x_data, pf_y_data, pf_z_data, {{"color", "red"}});
-//     }
-
-//     matplotlibcpp::xlabel("X");
-//     matplotlibcpp::ylabel("Y");
-
-//     // Set the Z label
-//     PyObject* zlabel = PyUnicode_FromString("Z");
-//     PyObject* set_zlabel = PyObject_GetAttrString(gca, "set_zlabel");
-//     if (set_zlabel && PyCallable_Check(set_zlabel)) {
-//         PyObject_CallFunctionObjArgs(set_zlabel, zlabel, nullptr);
-//         Py_DECREF(set_zlabel);
-//     } else {
-//         throw std::runtime_error("Failed to set zlabel.");
-//     }
-
-//     // Set title and legend
-//     matplotlibcpp::title("Real-Time 3D Plot");
-//     matplotlibcpp::legend();
-//     matplotlibcpp::pause(0.1);
-
-//     // Clean up
-//     Py_DECREF(gca);
-//     Py_DECREF(zlabel);
-//     Py_DECREF(fig);
-// }
-
-
-
-
-
-
-// inline vector<vector<double>> test_kinematics(const Pose& initial_pose) {
-
-
-// }
-
-// inline void points_for_plot(const Particle& particle, const std::vector<vector<double>>& xyz_points) {
-// 	// std::vector<vector<double>> xyz_points;
-// 	std::vector<double> x_points;
-// 	std::vector<double> y_points;
-// 	std::vector<double> z_points;
-	
-// 	x_points.push_back(particle->x);
-// 	y_points.push_back(particle->y);
-// 	z_points.push_back(particle->z);
-
-// 	xyz_points->push_back(x_points);
-// 	xyz_points->push_back(y_points);
-// 	xyz_points->push_back(z_points);
-
-// 	// return xyz_points;
-// }
-
-// Function to apply rotation matrix to transform coordinates from local to global
-// void transformCoordinates(double& x, double& y, double& z, double delta_t, double yaw_rate, double pitch_rate, double roll_rate) {
-//     // Calculate the rotation matrix components based on angular velocities and delta_t
-//     double delta_pitch = pitch_rate * delta_t;
-//     double delta_roll = roll_rate * delta_t;
-//     double delta_yaw = yaw_rate * delta_t;
-
-//     double cos_pitch = cos(delta_pitch);
-//     double sin_pitch = sin(delta_pitch);
-//     double cos_roll = cos(delta_roll);
-//     double sin_roll = sin(delta_roll);
-//     double cos_yaw = cos(delta_yaw);
-//     double sin_yaw = sin(delta_yaw);
-
-//     // Rotation matrix components
-//     double R11 = cos_yaw * cos_pitch;
-//     double R12 = cos_yaw * sin_pitch * sin_roll - sin_yaw * cos_roll;
-//     double R13 = cos_yaw * sin_pitch * cos_roll + sin_yaw * sin_roll;
-//     double R21 = sin_yaw * cos_pitch;
-//     double R22 = sin_yaw * sin_pitch * sin_roll + cos_yaw * cos_roll;
-//     double R23 = sin_yaw * sin_pitch * cos_roll - cos_yaw * sin_roll;
-//     double R31 = -sin_pitch;
-//     double R32 = cos_pitch * sin_roll;
-//     double R33 = cos_pitch * cos_roll;
-
-//     // Apply the rotation
-//     double x_new = R11 * x + R12 * y + R13 * z;
-//     double y_new = R21 * x + R22 * y + R23 * z;
-//     double z_new = R31 * x + R32 * y + R33 * z;
-
-//     x = x_new;
-//     y = y_new;
-//     z = z_new;
-// }
-//=================================================================
-//=================================================================
+///////////////////////////////////////////////////
 
 inline double * getError(double gt_x, double gt_y, double gt_theta, double pf_x, double pf_y, double pf_theta) {
 	static double error[3];
